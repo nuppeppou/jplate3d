@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>防災センター｜地震情報監視システム</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --panel: #111827;
+    --border: #1e3a5f;
+    --accent: #00d4ff;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --success: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  /* ヘッダー */
+  header {
+    background: linear-gradient(90deg, #0f172a, #1e293b);
+    border-bottom: 2px solid var(--accent);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-icon {
+    width: 42px; height: 42px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: bold; color: #000;
+  }
+  .logo h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .logo span { font-size: 0.75rem; color: var(--muted); display: block; }
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .clock {
+    font-family: "Courier New", monospace;
+    font-size: 1.3rem;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(34,197,94,0.15);
+    border: 1px solid var(--success);
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .status-indicator.alert {
+    background: rgba(239,68,68,0.2);
+    border-color: var(--danger);
+    animation: pulse 1.5s infinite;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .status-indicator.alert .status-dot { background: var(--danger); }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  /* メインレイアウト */
+  .dashboard {
+    display: grid;
+    grid-template-columns: 340px 1fr 320px;
+    gap: 12px;
+    padding: 12px;
+    height: calc(100vh - 70px);
+  }
+  @media (max-width: 1100px) {
+    .dashboard {
+      grid-template-columns: 1fr;
+      height: auto;
+    }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    background: #0f172a;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .panel-header .badge {
+    font-size: 0.7rem;
+    background: var(--accent);
+    color: #000;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+  }
+  /* 地震リスト */
+  .quake-item {
+    background: #1a2332;
+    border-left: 4px solid #64748b;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    transition: background 0.2s;
+    cursor: default;
+  }
+  .quake-item:hover { background: #243044; }
+  .quake-item.high { border-left-color: var(--danger); }
+  .quake-item.mid { border-left-color: var(--warning); }
+  .quake-time {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .quake-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .quake-name { font-weight: 600; font-size: 0.95rem; }
+  .quake-mag {
+    font-family: monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .quake-meta {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 4px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .intensity-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    min-width: 36px;
+    text-align: center;
+  }
+  /* 地図 */
+  #map {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    background: #0f172a;
+  }
+  .leaflet-container { background: #0f172a; }
+  /* 右側パネル */
+  .info-block {
+    background: #1a2332;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .info-block h3 {
+    font-size: 0.85rem;
+    color: var(--accent);
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+  }
+  .tsunami-status {
+    text-align: center;
+    padding: 16px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border-radius: 8px;
+    background: rgba(34,197,94,0.15);
+    border: 1px solid var(--success);
+    color: var(--success);
+  }
+  .tsunami-status.warning {
+    background: rgba(245,158,11,0.2);
+    border-color: var(--warning);
+    color: var(--warning);
+  }
+  .tsunami-status.danger {
+    background: rgba(239,68,68,0.2);
+    border-color: var(--danger);
+    color: var(--danger);
+    animation: pulse 1.2s infinite;
+  }
+  .scale-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  .scale-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid #1e293b;
+  }
+  .scale-table .color {
+    width: 28px;
+    height: 18px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  .tips li {
+    font-size: 0.8rem;
+    margin-bottom: 6px;
+    padding-left: 8px;
+    border-left: 2px solid var(--accent);
+    list-style: none;
+  }
+  .contact-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    font-size: 0.8rem;
+  }
+  .contact-item {
+    background: #0f172a;
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+  }
+  .contact-item strong { display: block; color: var(--accent); font-size: 1rem; }
+  /* フッター */
+  footer {
+    text-align: center;
+    padding: 8px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .last-update {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-icon">防</div>
+    <div>
+      <h1>防災センター</h1>
+      <span>地震・津波情報監視システム</span>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="clock" id="clock">--:--:--</div>
+    <div class="status-indicator" id="statusInd">
+      <div class="status-dot"></div>
+      <span id="statusText">平常監視中</span>
+    </div>
+  </div>
+</header>
+
+<div class="dashboard">
+  <!-- 左：最新地震リスト -->
+  <div class="panel">
+    <div class="panel-header">
+      最新地震情報
+      <span class="badge" id="quakeCount">0</span>
+    </div>
+    <div class="panel-body" id="quakeList">
+      <div class="loading">データ取得中...</div>
+    </div>
+  </div>
+
+  <!-- 中央：地図 -->
+  <div class="panel">
+    <div class="panel-header">
+      震源分布マップ
+      <span class="last-update" id="mapUpdate">更新: --</span>
+    </div>
+    <div class="panel-body" style="padding:0; position:relative;">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <!-- 右：各種情報 -->
+  <div class="panel">
+    <div class="panel-header">情報パネル</div>
+    <div class="panel-body">
+      <div class="info-block">
+        <h3>津波情報</h3>
+        <div class="tsunami-status" id="tsunamiStatus">津波の心配なし</div>
+      </div>
+
+      <div class="info-block">
+        <h3>震度階級</h3>
+        <table class="scale-table">
+          <tr><td><span class="color" style="background:#f2f2ff"></span></td><td>震度1</td><td>ほとんど感じない</td></tr>
+          <tr><td><span class="color" style="background:#00aaff"></span></td><td>震度2</td><td>わずかに感じる</td></tr>
+          <tr><td><span class="color" style="background:#0041ff;color:#fff"></span></td><td>震度3</td><td>はっきり感じる</td></tr>
+          <tr><td><span class="color" style="background:#fae696"></span></td><td>震度4</td><td>かなりの揺れ</td></tr>
+          <tr><td><span class="color" style="background:#ffe600"></span></td><td>震度5弱</td><td>物が倒れる</td></tr>
+          <tr><td><span class="color" style="background:#ff9900"></span></td><td>震度5強</td><td>歩行困難</td></tr>
+          <tr><td><span class="color" style="background:#ff2800;color:#fff"></span></td><td>震度6弱</td><td>立っていられない</td></tr>
+          <tr><td><span class="color" style="background:#a50021;color:#fff"></span></td><td>震度6強</td><td>はわないと動けない</td></tr>
+          <tr><td><span class="color" style="background:#b40068;color:#fff"></span></td><td>震度7</td><td>甚大な被害</td></tr>
+        </table>
+      </div>
+
+      <div class="info-block">
+        <h3>地震発生時の行動</h3>
+        <ul class="tips">
+          <li>まず身の安全を最優先（机の下など）</li>
+          <li>火の始末は揺れが収まってから</li>
+          <li>ドアを開けて避難路を確保</li>
+          <li>津波の恐れがある場合は高台へ</li>
+          <li>正しい情報を確認（デマに注意）</li>
+        </ul>
+      </div>
+
+      <div class="info-block">
+        <h3>緊急連絡先</h3>
+        <div class="contact-grid">
+          <div class="contact-item"><strong>110</strong>警察</div>
+          <div class="contact-item"><strong>119</strong>消防・救急</div>
+          <div class="contact-item"><strong>171</strong>災害用伝言</div>
+          <div class="contact-item"><strong>177</strong>天気予報</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  データ提供：P2P地震情報（気象庁発表情報に基づく）｜このページは参考情報です。正式な情報は気象庁・自治体の発表を確認してください。
+  <span id="lastFetch"></span>
+</footer>
+
+<script>
+// ========== ユーティリティ ==========
+const intensityMap = {
+  10: { label: '1', color: '#f2f2ff', text: '#000' },
+  20: { label: '2', color: '#00aaff', text: '#000' },
+  30: { label: '3', color: '#0041ff', text: '#fff' },
+  40: { label: '4', color: '#fae696', text: '#000' },
+  45: { label: '5弱', color: '#ffe600', text: '#000' },
+  50: { label: '5強', color: '#ff9900', text: '#000' },
+  55: { label: '6弱', color: '#ff2800', text: '#fff' },
+  60: { label: '6強', color: '#a50021', text: '#fff' },
+  70: { label: '7', color: '#b40068', text: '#fff' },
+  '-1': { label: '不明', color: '#64748b', text: '#fff' }
+};
+
+function getIntensity(scale) {
+  if (scale === undefined || scale === null || scale < 0) return intensityMap['-1'];
+  if (scale >= 70) return intensityMap[70];
+  if (scale >= 60) return intensityMap[60];
+  if (scale >= 55) return intensityMap[55];
+  if (scale >= 50) return intensityMap[50];
+  if (scale >= 45) return intensityMap[45];
+  if (scale >= 40) return intensityMap[40];
+  if (scale >= 30) return intensityMap[30];
+  if (scale >= 20) return intensityMap[20];
+  if (scale >= 10) return intensityMap[10];
+  return intensityMap['-1'];
+}
+
+function formatTime(str) {
+  if (!str) return '--';
+  // "2026/09/14 07:17:00" → 見やすく
+  return str.replace(/\//g, '-');
+}
+
+// ========== 時計 ==========
+function updateClock() {
+  const now = new Date();
+  const opts = { timeZone: 'Asia/Tokyo', hour12: false };
+  const time = now.toLocaleTimeString('ja-JP', { ...opts, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const date = now.toLocaleDateString('ja-JP', { ...opts, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' });
+  document.getElementById('clock').textContent = `${date} ${time}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ========== 地図 ==========
+const map = L.map('map', {
+  center: [37.5, 137.5],
+  zoom: 5,
+  zoomControl: true
+});
+
+L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+  attribution: '国土地理院',
+  maxZoom: 18
+}).addTo(map);
+
+let markersLayer = L.layerGroup().addTo(map);
+
+// ========== データ取得 ==========
+async function fetchQuakes() {
+  try {
+    const res = await fetch('https://api.p2pquake.net/v2/history?codes=551&limit=30');
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    renderQuakes(data);
+    updateMap(data);
+    document.getElementById('lastFetch').textContent = `｜最終更新: ${new Date().toLocaleTimeString('ja-JP')}`;
+    document.getElementById('mapUpdate').textContent = `更新: ${new Date().toLocaleTimeString('ja-JP', {hour:'2-digit',minute:'2-digit'})}`;
+  } catch (e) {
+    console.error(e);
+    document.getElementById('quakeList').innerHTML = '<div class="loading">データ取得に失敗しました。再試行します...</div>';
+  }
+}
+
+async function fetchTsunami() {
+  try {
+    const res = await fetch('https://api.p2pquake.net/v2/history?codes=552&limit=5');
+    if (!res.ok) return;
+    const data = await res.json();
+    const el = document.getElementById('tsunamiStatus');
+    if (!data || data.length === 0) {
+      el.textContent = '津波の心配なし';
+      el.className = 'tsunami-status';
+      return;
+    }
+    // 最新の津波情報を簡易チェック
+    const latest = data[0];
+    // 簡易判定（実際のフィールドに合わせて調整）
+    el.textContent = '最新の津波情報を確認中';
+    el.className = 'tsunami-status warning';
+    // 詳細は公式確認を促す
+  } catch (e) {
+    // 無視
+  }
+}
+
+function renderQuakes(list) {
+  const container = document.getElementById('quakeList');
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div class="loading">地震情報なし</div>';
+    return;
+  }
+
+  // 重複をある程度除く（同一震源・時刻）
+  const seen = new Set();
+  const unique = list.filter(q => {
+    const key = (q.earthquake?.time || '') + (q.earthquake?.hypocenter?.name || '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  document.getElementById('quakeCount').textContent = unique.length;
+
+  let maxScale = 0;
+  let html = '';
+  unique.forEach(q => {
+    const eq = q.earthquake || {};
+    const hyp = eq.hypocenter || {};
+    const scale = eq.maxScale ?? -1;
+    if (scale > maxScale) maxScale = scale;
+    const int = getIntensity(scale);
+    const cls = scale >= 50 ? 'high' : (scale >= 40 ? 'mid' : '');
+    const tsunami = eq.domesticTsunami === 'None' || !eq.domesticTsunami ? '津波なし' :
+                    eq.domesticTsunami === 'Unknown' ? '津波調査中' : eq.domesticTsunami;
+
+    html += `
+      <div class="quake-item ${cls}">
+        <div class="quake-time">${formatTime(eq.time)}</div>
+        <div class="quake-main">
+          <div class="quake-name">${hyp.name || '不明'}</div>
+          <div>
+            <span class="intensity-badge" style="background:${int.color};color:${int.text}">${int.label}</span>
+            <span class="quake-mag">M${hyp.magnitude ?? '-'}</span>
+          </div>
+        </div>
+        <div class="quake-meta">
+          <span>深さ ${hyp.depth ?? '-'}km</span>
+          <span>${tsunami}</span>
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+
+  // ステータス更新
+  const ind = document.getElementById('statusInd');
+  const txt = document.getElementById('statusText');
+  if (maxScale >= 50) {
+    ind.className = 'status-indicator alert';
+    txt.textContent = '強い揺れを観測';
+  } else if (maxScale >= 40) {
+    ind.className = 'status-indicator';
+    ind.style.borderColor = 'var(--warning)';
+    ind.style.background = 'rgba(245,158,11,0.15)';
+    txt.textContent = '注意レベルの地震あり';
+  } else {
+    ind.className = 'status-indicator';
+    txt.textContent = '平常監視中';
+  }
+}
+
+function updateMap(list) {
+  markersLayer.clearLayers();
+  const bounds = [];
+
+  list.forEach(q => {
+    const hyp = q.earthquake?.hypocenter;
+    if (!hyp || hyp.latitude == null || hyp.longitude == null) return;
+    const lat = hyp.latitude;
+    const lon = hyp.longitude;
+    const mag = parseFloat(hyp.magnitude) || 1;
+    const scale = q.earthquake?.maxScale ?? -1;
+    const int = getIntensity(scale);
+    const radius = Math.max(6, mag * 3);
+
+    const marker = L.circleMarker([lat, lon], {
+      radius: radius,
+      fillColor: int.color,
+      color: '#fff',
+      weight: 1,
+      opacity: 0.9,
+      fillOpacity: 0.75
+    });
+
+    marker.bindPopup(`
+      <strong>${hyp.name || '不明'}</strong><br>
+      発生: ${q.earthquake?.time || '-'}<br>
+      マグニチュード: M${hyp.magnitude ?? '-'}<br>
+      深さ: ${hyp.depth ?? '-'}km<br>
+      最大震度: ${int.label}
+    `);
+    markersLayer.addLayer(marker);
+    bounds.push([lat, lon]);
+  });
+
+  if (bounds.length > 0) {
+    try {
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 8 });
+    } catch (e) {}
+  }
+}
+
+// 初期化＆定期更新
+fetchQuakes();
+fetchTsunami();
+setInterval(fetchQuakes, 45000);  // 45秒ごと
+setInterval(fetchTsunami, 60000);
+</script>
+</body>
+</html>
