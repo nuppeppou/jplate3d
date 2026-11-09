@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>日本周辺プレート + 直近地震 3Dビューア</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #1a1a2e;
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", sans-serif;
+    }
+    #header {
+      padding: 12px 20px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+    .sub {
+      font-size: 0.85rem;
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+    #plot {
+      width: 100%;
+      height: calc(100vh - 80px);
+    }
+    .note {
+      font-size: 0.75rem;
+      opacity: 0.7;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>日本周辺の地殻プレート + 直近24時間前後の地震（3D）</h1>
+    <div class="sub">マウスドラッグで回転・ホイールでズーム・右ドラッグでパン　｜　赤い球体＝震源（大きさ＝マグニチュード）</div>
+    <div class="note">データは近似です。最新の正確な情報は気象庁・USGSで確認してください。</div>
+  </div>
+  <div id="plot"></div>
+
+  <script>
+    // ===== 簡易日本列島輪郭 =====
+    const honshu = {
+      lon: [139.5, 141, 142, 141.5, 140.5, 139, 136, 135, 133, 131, 130.5, 131, 133, 135, 136.5, 138, 139.5],
+      lat: [35.5, 38, 41, 42, 40, 38, 35, 34, 33.5, 33, 31.5, 33, 34.5, 35, 35.5, 36, 35.5]
+    };
+    const hokkaido = {
+      lon: [140, 142, 145, 145.5, 143, 141.5, 140],
+      lat: [42, 43, 44, 43, 42, 41.5, 42]
+    };
+    const kyushu = {
+      lon: [130, 131.5, 132, 131, 130.5, 129.5, 130],
+      lat: [31, 33, 32, 31, 30.5, 31.5, 31]
+    };
+    const shikoku = {
+      lon: [133, 134.5, 134, 133, 132.5, 133],
+      lat: [33.5, 34, 33, 33, 33.5, 33.5]
+    };
+
+    // 海溝
+    const jtLon = Array.from({length: 25}, (_, i) => 142 + i * 0.12);
+    const jtLat = Array.from({length: 25}, (_, i) => 35 + i * 0.28);
+    const ntLon = Array.from({length: 25}, (_, i) => 132 + i * 0.28);
+    const ntLat = Array.from({length: 25}, (_, i) => 31 + i * 0.16);
+
+    // 太平洋スラブ
+    const pacLon = Array.from({length: 30}, (_, i) => 138 + i * 0.25);
+    const pacLat = Array.from({length: 30}, (_, i) => 35 + i * 0.28);
+    const PAC_LON = [], PAC_LAT = [], pacDepth = [];
+    for (let i = 0; i < pacLat.length; i++) {
+      for (let j = 0; j < pacLon.length; j++) {
+        PAC_LON.push(pacLon[j]);
+        PAC_LAT.push(pacLat[i]);
+        let d = -(144 - pacLon[j]) * 40;
+        pacDepth.push(Math.max(-300, Math.min(0, d)));
+      }
+    }
+
+    // フィリピン海スラブ
+    const phsLon = Array.from({length: 30}, (_, i) => 132 + i * 0.28);
+    const phsLat = Array.from({length: 30}, (_, i) => 30 + i * 0.2);
+    const PHS_LON = [], PHS_LAT = [], phsDepth = [];
+    for (let i = 0; i < phsLat.length; i++) {
+      for (let j = 0; j < phsLon.length; j++) {
+        PHS_LON.push(phsLon[j]);
+        PHS_LAT.push(phsLat[i]);
+        let d = -(phsLat[i] - 32) * 50;
+        phsDepth.push(Math.max(-150, Math.min(0, d)));
+      }
+    }
+
+    // 直近の地震（近似）
+    const earthquakes = [
+      {lon: 141.9, lat: 38.3, z: -52, mag: 4.5, text: "M4.5 宮城県沖（女川東方）"},
+      {lon: 137.69, lat: 34.86, z: -38, mag: 5.6, text: "M5.5-5.7 静岡県西部（浜北付近）"},
+      {lon: 142.7, lat: 40.3, z: -20, mag: 4.1, text: "M4.1 岩手県沖"},
+      {lon: 130.5, lat: 32.5, z: -10, mag: 4.5, text: "M4.5前後 熊本・天草付近"},
+      {lon: 141.5, lat: 39.0, z: -30, mag: 3.8, text: "M3台 東北沖付近"}
+    ];
+
+    const data = [
+      // 列島
+      {type: 'scatter3d', mode: 'lines', x: honshu.lon, y: honshu.lat, z: Array(honshu.lon.length).fill(0),
+       line: {color: 'limegreen', width: 5}, name: '本州'},
+      {type: 'scatter3d', mode: 'lines', x: hokkaido.lon, y: hokkaido.lat, z: Array(hokkaido.lon.length).fill(0),
+       line: {color: 'limegreen', width: 5}, name: '北海道'},
+      {type: 'scatter3d', mode: 'lines', x: kyushu.lon, y: kyushu.lat, z: Array(kyushu.lon.length).fill(0),
+       line: {color: 'limegreen', width: 5}, name: '九州'},
+      {type: 'scatter3d', mode: 'lines', x: shikoku.lon, y: shikoku.lat, z: Array(shikoku.lon.length).fill(0),
+       line: {color: 'limegreen', width: 5}, name: '四国'},
+
+      // 海溝
+      {type: 'scatter3d', mode: 'lines', x: jtLon, y: jtLat, z: Array(25).fill(0),
+       line: {color: 'red', width: 6}, name: '日本海溝'},
+      {type: 'scatter3d', mode: 'lines', x: ntLon, y: ntLat, z: Array(25).fill(0),
+       line: {color: 'darkorange', width: 6}, name: '南海トラフ'},
+
+      // 太平洋スラブ
+      {
+        type: 'mesh3d',
+        x: PAC_LON, y: PAC_LAT, z: pacDepth,
+        intensity: pacDepth,
+        colorscale: 'Blues',
+        opacity: 0.55,
+        name: '太平洋プレート・スラブ',
+        showscale: true,
+        colorbar: {title: '深さ(km)', x: 1.02}
+      },
+
+      // フィリピン海スラブ
+      {
+        type: 'mesh3d',
+        x: PHS_LON, y: PHS_LAT, z: phsDepth,
+        intensity: phsDepth,
+        colorscale: 'Oranges',
+        opacity: 0.55,
+        name: 'フィリピン海プレート・スラブ',
+        showscale: false
+      },
+
+      // 地震
+      {
+        type: 'scatter3d',
+        mode: 'markers+text',
+        x: earthquakes.map(e => e.lon),
+        y: earthquakes.map(e => e.lat),
+        z: earthquakes.map(e => e.z),
+        text: earthquakes.map(e => e.text),
+        textposition: 'top center',
+        textfont: {size: 11, color: 'white'},
+        marker: {
+          size: earthquakes.map(e => e.mag * 4),
+          color: 'crimson',
+          opacity: 0.9,
+          line: {width: 1, color: 'white'}
+        },
+        name: '直近の地震',
+        hovertemplate: '%{text}<br>経度: %{x:.2f}<br>緯度: %{y:.2f}<br>深さ: %{z:.0f} km<extra></extra>'
+      },
+
+      // ラベル
+      {type: 'scatter3d', mode: 'text', x: [147], y: [38], z: [5], text: ['太平洋プレート'],
+       textfont: {size: 14, color: 'deepskyblue'}, showlegend: false},
+      {type: 'scatter3d', mode: 'text', x: [135], y: [27], z: [5], text: ['フィリピン海プレート'],
+       textfont: {size: 14, color: 'orange'}, showlegend: false},
+      {type: 'scatter3d', mode: 'text', x: [134], y: [38], z: [15], text: ['ユーラシア/アムール'],
+       textfont: {size: 13, color: 'violet'}, showlegend: false},
+      {type: 'scatter3d', mode: 'text', x: [143], y: [45], z: [15], text: ['オホーツクプレート'],
+       textfont: {size: 13, color: 'tan'}, showlegend: false}
+    ];
+
+    const layout = {
+      title: '',
+      paper_bgcolor: '#1a1a2e',
+      plot_bgcolor: '#1a1a2e',
+      font: {color: 'white'},
+      scene: {
+        xaxis: {title: '経度 (°E)', gridcolor: '#333'},
+        yaxis: {title: '緯度 (°N)', gridcolor: '#333'},
+        zaxis: {title: '深さ (km)', gridcolor: '#333'},
+        aspectmode: 'manual',
+        aspectratio: {x: 1.2, y: 1, z: 0.35},
+        camera: {eye: {x: 1.6, y: -1.8, z: 0.9}},
+        bgcolor: '#0f0f1a'
+      },
+      margin: {l: 0, r: 0, t: 0, b: 0},
+      showlegend: true,
+      legend: {x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.6)'}
+    };
+
+    Plotly.newPlot('plot', data, layout, {responsive: true, displayModeBar: true});
+  </script>
+</body>
+</html>
