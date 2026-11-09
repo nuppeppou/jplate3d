@@ -26,14 +26,13 @@
       0deg,
       transparent,
       transparent 2px,
-      rgba(0, 240, 255, 0.025) 2px,
-      rgba(0, 240, 255, 0.025) 4px
+      rgba(0, 240, 255, 0.03) 2px,
+      rgba(0, 240, 255, 0.03) 4px
     );
     pointer-events: none;
     z-index: 100;
   }
 
-  /* ヘッダー */
   #hud {
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -64,47 +63,43 @@
     line-height: 1.5;
   }
 
-  /* プロット領域を大きく */
   #plot {
     width: 100%;
     height: 100vh;
   }
 
-  /* クリック時の情報パネル */
   #info-panel {
     position: absolute;
     bottom: 30px;
     right: 30px;
-    width: 340px;
-    background: rgba(0, 12, 24, 0.92);
+    width: 360px;
+    background: rgba(0, 12, 24, 0.94);
     border: 1px solid #00f0ff;
     box-shadow: 0 0 25px #00f0ff55;
-    padding: 18px 22px;
+    padding: 20px 24px;
     z-index: 30;
     display: none;
-    font-size: 0.95rem;
-    line-height: 1.6;
+    font-size: 1rem;
+    line-height: 1.7;
   }
   #info-panel h3 {
     color: #ff003c;
-    font-size: 1.15rem;
-    margin-bottom: 10px;
-    letter-spacing: 1px;
+    font-size: 1.2rem;
+    margin-bottom: 12px;
   }
   #info-panel .close {
     position: absolute;
-    top: 10px; right: 14px;
+    top: 12px; right: 16px;
     cursor: pointer;
     color: #00f0ff;
-    font-size: 1.2rem;
+    font-size: 1.4rem;
   }
   #info-panel .close:hover { color: #ff00aa; }
 
-  /* フッター */
   #footer {
     position: absolute;
-    bottom: 16px; left: 28px;
-    font-size: 0.8rem;
+    bottom: 18px; left: 28px;
+    font-size: 0.85rem;
     color: #00f0ff99;
     z-index: 20;
     line-height: 1.6;
@@ -124,7 +119,6 @@
 
 <div id="plot"></div>
 
-<!-- クリック時に表示される情報パネル -->
 <div id="info-panel">
   <div class="close" onclick="document.getElementById('info-panel').style.display='none'">×</div>
   <h3 id="info-title">震源情報</h3>
@@ -137,7 +131,7 @@
 </div>
 
 <script>
-// ===== 日本列島（より詳細） =====
+// ===== 日本列島 =====
 const japan = {
   honshu: {
     lon: [141.0,141.6,142.1,142.4,141.9,141.3,140.7,140.1,139.4,138.6,137.6,136.7,135.8,135.0,134.3,133.5,132.7,131.9,131.2,130.7,130.9,131.5,132.4,133.4,134.4,135.4,136.4,137.4,138.4,139.4,140.3,140.9,141.0],
@@ -166,22 +160,29 @@ const nankai = {
   lat: [31.0,31.5,32.0,32.5,33.0,33.5,34.0,34.5]
 };
 
-function makeSlab(lonMin, lonMax, latMin, latMax, depthFn, steps=30) {
-  const x=[], y=[], z=[];
-  for(let i=0; i<steps; i++){
-    for(let j=0; j<steps; j++){
-      const lon = lonMin + (lonMax-lonMin)*j/(steps-1);
-      const lat = latMin + (latMax-latMin)*i/(steps-1);
-      x.push(lon); y.push(lat); z.push(depthFn(lon,lat));
+// スラブを surface 用の2次元配列で生成（安定版）
+function makeSurface(lonMin, lonMax, latMin, latMax, depthFn, steps = 28) {
+  const x = [], y = [], z = [];
+  for (let i = 0; i < steps; i++) {
+    const rowX = [], rowY = [], rowZ = [];
+    const lat = latMin + (latMax - latMin) * i / (steps - 1);
+    for (let j = 0; j < steps; j++) {
+      const lon = lonMin + (lonMax - lonMin) * j / (steps - 1);
+      rowX.push(lon);
+      rowY.push(lat);
+      rowZ.push(depthFn(lon, lat));
     }
+    x.push(rowX);
+    y.push(rowY);
+    z.push(rowZ);
   }
-  return {x,y,z};
+  return { x, y, z };
 }
 
-const pac = makeSlab(138,145,35,43, (lon)=> Math.max(-280, Math.min(0, -(144-lon)*38)));
-const phs = makeSlab(132,140,30,36, (lon,lat)=> Math.max(-140, Math.min(0, -(lat-32)*48)));
+const pac = makeSurface(138, 145, 35, 43, (lon) => Math.max(-280, Math.min(0, -(144 - lon) * 38)));
+const phs = makeSurface(132, 140, 30, 36, (lon, lat) => Math.max(-140, Math.min(0, -(lat - 32) * 48)));
 
-// 震源データ（クリック用に詳細を持たせる）
+// 震源データ
 const quakes = [
   {lon:141.9, lat:38.3, z:-52, mag:4.5, title:"M4.5 宮城県沖", detail:"女川町東方沖<br>深さ 約52km<br>発生：直近24時間以内"},
   {lon:137.69, lat:34.86, z:-38, mag:5.6, title:"M5.6 静岡県西部", detail:"浜北付近<br>深さ 約38km<br>発生：11月8日 01:04頃"},
@@ -192,51 +193,146 @@ const quakes = [
 
 const traces = [
   // 日本列島
-  {type:'scatter3d', mode:'lines', name:'本州',
-   x:japan.honshu.lon, y:japan.honshu.lat, z:Array(japan.honshu.lon.length).fill(3),
-   line:{color:'#00f0ff', width:7}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'北海道',
-   x:japan.hokkaido.lon, y:japan.hokkaido.lat, z:Array(japan.hokkaido.lon.length).fill(3),
-   line:{color:'#00f0ff', width:6}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'九州',
-   x:japan.kyushu.lon, y:japan.kyushu.lat, z:Array(japan.kyushu.lon.length).fill(3),
-   line:{color:'#00f0ff', width:6}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'四国',
-   x:japan.shikoku.lon, y:japan.shikoku.lat, z:Array(japan.shikoku.lon.length).fill(3),
-   line:{color:'#00f0ff', width:5}, hoverinfo:'skip'},
-
-  // 海溝
-  {type:'scatter3d', mode:'lines', name:'日本海溝',
-   x:japanTrench.lon, y:japanTrench.lat, z:Array(7).fill(0),
-   line:{color:'#ff003c', width:8}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'南海トラフ',
-   x:nankai.lon, y:nankai.lat, z:Array(8).fill(0),
-   line:{color:'#ff00aa', width:7}, hoverinfo:'skip'},
-
-  // スラブ
-  {type:'mesh3d', name:'太平洋プレート',
-   x:pac.x, y:pac.y, z:pac.z,
-   intensity:pac.z, colorscale:[[0,'#001a33'],[0.5,'#0066aa'],[1,'#00f0ff']],
-   opacity:0.55, showscale:false, hoverinfo:'skip'},
-  {type:'mesh3d', name:'フィリピン海プレート',
-   x:phs.x, y:phs.y, z:phs.z,
-   intensity:phs.z, colorscale:[[0,'#1a001a'],[0.5,'#aa0066'],[1,'#ff00aa']],
-   opacity:0.55, showscale:false, hoverinfo:'skip'},
-
-  // 震源（テキストは非表示、クリックで詳細）
-  {type:'scatter3d', mode:'markers', name:'震源',
-   x:quakes.map(q=>q.lon),
-   y:quakes.map(q=>q.lat),
-   z:quakes.map(q=>q.z),
-   customdata: quakes.map(q => ({title: q.title, detail: q.detail, mag: q.mag})),
-   marker:{
-     size:quakes.map(q=>q.mag*6),
-     color:'#ff003c',
-     opacity:0.95,
-     line:{width:2, color:'#ffffff'},
-     symbol:'circle'
-   },
-   hovertemplate:'クリックで詳細表示<br>M%{customdata.mag}<extra></extra>'
+  {
+    type: 'scatter3d', mode: 'lines', name: '本州',
+    x: japan.honshu.lon, y: japan.honshu.lat, z: Array(japan.honshu.lon.length).fill(3),
+    line: { color: '#00f0ff', width: 7 }, hoverinfo: 'skip'
+  },
+  {
+    type: 'scatter3d', mode: 'lines', name: '北海道',
+    x: japan.hokkaido.lon, y: japan.hokkaido.lat, z: Array(japan.hokkaido.lon.length).fill(3),
+    line: { color: '#00f0ff', width: 6 }, hoverinfo: 'skip'
+  },
+  {
+    type: 'scatter3d', mode: 'lines', name: '九州',
+    x: japan.kyushu.lon, y: japan.kyushu.lat, z: Array(japan.kyushu.lon.length).fill(3),
+    line: { color: '#00f0ff', width: 6 }, hoverinfo: 'skip'
+  },
+  {
+    type: 'scatter3d', mode: 'lines', name: '四国',
+    x: japan.shikoku.lon, y: japan.shikoku.lat, z: Array(japan.shikoku.lon.length).fill(3),
+    line: { color: '#00f0ff', width: 5 }, hoverinfo: 'skip'
   },
 
-  // プレート名（日本語）
+  // 海溝
+  {
+    type: 'scatter3d', mode: 'lines', name: '日本海溝',
+    x: japanTrench.lon, y: japanTrench.lat, z: Array(7).fill(0),
+    line: { color: '#ff003c', width: 8 }, hoverinfo: 'skip'
+  },
+  {
+    type: 'scatter3d', mode: 'lines', name: '南海トラフ',
+    x: nankai.lon, y: nankai.lat, z: Array(8).fill(0),
+    line: { color: '#ff00aa', width: 7 }, hoverinfo: 'skip'
+  },
+
+  // 太平洋プレート（surface）
+  {
+    type: 'surface',
+    name: '太平洋プレート',
+    x: pac.x, y: pac.y, z: pac.z,
+    colorscale: [[0, '#001a33'], [0.5, '#0066aa'], [1, '#00f0ff']],
+    opacity: 0.58,
+    showscale: false,
+    hoverinfo: 'skip',
+    contours: {
+      x: { show: true, color: '#00f0ff', width: 1 },
+      y: { show: true, color: '#00f0ff', width: 1 },
+      z: { show: false }
+    }
+  },
+
+  // フィリピン海プレート
+  {
+    type: 'surface',
+    name: 'フィリピン海プレート',
+    x: phs.x, y: phs.y, z: phs.z,
+    colorscale: [[0, '#1a001a'], [0.5, '#aa0066'], [1, '#ff00aa']],
+    opacity: 0.58,
+    showscale: false,
+    hoverinfo: 'skip',
+    contours: {
+      x: { show: true, color: '#ff00aa', width: 1 },
+      y: { show: true, color: '#ff00aa', width: 1 },
+      z: { show: false }
+    }
+  },
+
+  // 震源
+  {
+    type: 'scatter3d',
+    mode: 'markers',
+    name: '震源',
+    x: quakes.map(q => q.lon),
+    y: quakes.map(q => q.lat),
+    z: quakes.map(q => q.z),
+    customdata: quakes.map(q => ({ title: q.title, detail: q.detail, mag: q.mag })),
+    marker: {
+      size: quakes.map(q => q.mag * 6),
+      color: '#ff003c',
+      opacity: 0.95,
+      line: { width: 2, color: '#ffffff' }
+    },
+    hovertemplate: 'クリックで詳細表示<br>M%{customdata.mag}<extra></extra>'
+  },
+
+  // プレート名
+  {
+    type: 'scatter3d', mode: 'text', showlegend: false,
+    x: [147], y: [38], z: [10], text: ['太平洋プレート'],
+    textfont: { size: 18, color: '#00f0ff', family: 'Noto Sans JP' }
+  },
+  {
+    type: 'scatter3d', mode: 'text', showlegend: false,
+    x: [135], y: [27], z: [10], text: ['フィリピン海プレート'],
+    textfont: { size: 16, color: '#ff00aa', family: 'Noto Sans JP' }
+  },
+  {
+    type: 'scatter3d', mode: 'text', showlegend: false,
+    x: [133.5], y: [39], z: [14], text: ['ユーラシア／アムール'],
+    textfont: { size: 15, color: '#aa88ff', family: 'Noto Sans JP' }
+  },
+  {
+    type: 'scatter3d', mode: 'text', showlegend: false,
+    x: [143], y: [45.5], z: [14], text: ['オホーツクプレート'],
+    textfont: { size: 15, color: '#88ffaa', family: 'Noto Sans JP' }
+  }
+];
+
+const layout = {
+  paper_bgcolor: '#02040a',
+  plot_bgcolor: '#02040a',
+  font: { color: '#00f0ff', family: 'Noto Sans JP', size: 13 },
+  scene: {
+    xaxis: { title: { text: '経度 (°E)', font: { size: 14 } }, gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f' },
+    yaxis: { title: { text: '緯度 (°N)', font: { size: 14 } }, gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f' },
+    zaxis: { title: { text: '深さ (km)', font: { size: 14 } }, gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f' },
+    aspectmode: 'manual',
+    aspectratio: { x: 1.3, y: 1, z: 0.34 },
+    camera: { eye: { x: 1.6, y: -1.9, z: 0.9 } },
+    bgcolor: '#02040a'
+  },
+  margin: { l: 0, r: 0, t: 0, b: 0 },
+  showlegend: false
+};
+
+const plotDiv = document.getElementById('plot');
+Plotly.newPlot(plotDiv, traces, layout, {
+  responsive: true,
+  displayModeBar: true,
+  modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+  displaylogo: false
+});
+
+// クリックで情報表示
+plotDiv.on('plotly_click', function(data) {
+  const pt = data.points[0];
+  if (pt.customdata) {
+    document.getElementById('info-title').innerHTML = pt.customdata.title;
+    document.getElementById('info-body').innerHTML = pt.customdata.detail;
+    document.getElementById('info-panel').style.display = 'block';
+  }
+});
+</script>
+</body>
+</html>
