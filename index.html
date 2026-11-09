@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SECTION-9 // TECTONIC NET // JAPAN</title>
+<title>攻殻機動隊風｜日本周辺プレート＋地震 3D</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Share+Tech+Mono&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@400;700&display=swap');
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: #02040a;
     color: #00f0ff;
-    font-family: 'Share Tech Mono', monospace;
+    font-family: 'Noto Sans JP', 'Share Tech Mono', monospace;
     overflow: hidden;
     height: 100vh;
   }
@@ -26,8 +26,8 @@
       0deg,
       transparent,
       transparent 2px,
-      rgba(0, 240, 255, 0.03) 2px,
-      rgba(0, 240, 255, 0.03) 4px
+      rgba(0, 240, 255, 0.025) 2px,
+      rgba(0, 240, 255, 0.025) 4px
     );
     pointer-events: none;
     z-index: 100;
@@ -38,93 +38,125 @@
     position: absolute;
     top: 0; left: 0; right: 0;
     z-index: 20;
-    background: linear-gradient(180deg, rgba(0,10,20,0.95) 0%, transparent 100%);
-    padding: 14px 24px 30px;
-    border-bottom: 1px solid #00f0ff33;
+    background: linear-gradient(180deg, rgba(0,8,18,0.97) 0%, transparent 100%);
+    padding: 18px 32px 40px;
+    border-bottom: 1px solid #00f0ff44;
   }
   .title {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 1.35rem;
-    letter-spacing: 4px;
+    font-family: 'Orbitron', 'Noto Sans JP', sans-serif;
+    font-size: 1.8rem;
+    letter-spacing: 6px;
     color: #00f0ff;
-    text-shadow: 0 0 12px #00f0ff, 0 0 30px #00f0ff55;
+    text-shadow: 0 0 14px #00f0ff, 0 0 40px #00f0ff66;
   }
   .subtitle {
-    font-size: 0.75rem;
+    font-size: 1rem;
     color: #ff00aa;
-    margin-top: 4px;
-    letter-spacing: 2px;
+    margin-top: 6px;
+    letter-spacing: 3px;
   }
   .status {
     position: absolute;
-    top: 18px; right: 24px;
-    font-size: 0.7rem;
+    top: 22px; right: 36px;
+    font-size: 0.9rem;
     color: #00ff9f;
     text-align: right;
+    line-height: 1.5;
   }
-  .status span { opacity: 0.6; }
 
-  /* プロット */
+  /* プロット領域を大きく */
   #plot {
     width: 100%;
     height: 100vh;
   }
 
-  /* フッター情報 */
+  /* クリック時の情報パネル */
+  #info-panel {
+    position: absolute;
+    bottom: 30px;
+    right: 30px;
+    width: 340px;
+    background: rgba(0, 12, 24, 0.92);
+    border: 1px solid #00f0ff;
+    box-shadow: 0 0 25px #00f0ff55;
+    padding: 18px 22px;
+    z-index: 30;
+    display: none;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  #info-panel h3 {
+    color: #ff003c;
+    font-size: 1.15rem;
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+  }
+  #info-panel .close {
+    position: absolute;
+    top: 10px; right: 14px;
+    cursor: pointer;
+    color: #00f0ff;
+    font-size: 1.2rem;
+  }
+  #info-panel .close:hover { color: #ff00aa; }
+
+  /* フッター */
   #footer {
     position: absolute;
-    bottom: 12px; left: 20px;
-    font-size: 0.65rem;
-    color: #00f0ff88;
+    bottom: 16px; left: 28px;
+    font-size: 0.8rem;
+    color: #00f0ff99;
     z-index: 20;
-    line-height: 1.5;
+    line-height: 1.6;
   }
 </style>
 </head>
 <body>
 
 <div id="hud">
-  <div class="title">SECTION-9 // TECTONIC NET</div>
-  <div class="subtitle">JAPAN PLATE BOUNDARY + RECENT SEISMIC ACTIVITY</div>
+  <div class="title">SECTION-9 // 地殻プレート監視網</div>
+  <div class="subtitle">日本周辺プレート境界 + 直近地震活動</div>
   <div class="status">
-    SYSTEM ONLINE<br>
-    <span>DEPTH EXAGGERATED ×3.5</span>
+    システム稼働中<br>
+    深さ誇張表示 ×3.5
   </div>
 </div>
 
 <div id="plot"></div>
 
+<!-- クリック時に表示される情報パネル -->
+<div id="info-panel">
+  <div class="close" onclick="document.getElementById('info-panel').style.display='none'">×</div>
+  <h3 id="info-title">震源情報</h3>
+  <div id="info-body"></div>
+</div>
+
 <div id="footer">
-  PACIFIC PLATE → CYAN　｜　PHILIPPINE SEA PLATE → MAGENTA<br>
-  RED SPHERES = RECENT QUAKES (SIZE ∝ MAGNITUDE)
+  太平洋プレート → シアン　｜　フィリピン海プレート → マゼンタ<br>
+  赤い球体をクリックすると震源詳細が表示されます
 </div>
 
 <script>
-// ===== より詳細な日本列島輪郭 =====
+// ===== 日本列島（より詳細） =====
 const japan = {
-  // 本州（かなり詳細）
   honshu: {
-    lon: [141.0,141.5,142.0,142.3,141.8,141.2,140.8,140.2,139.5,138.8,137.8,136.9,136.0,135.2,134.5,133.8,133.0,132.2,131.5,131.0,130.8,131.2,132.0,133.0,134.0,135.0,136.0,137.0,138.0,139.0,140.0,140.8,141.0],
-    lat: [41.5,41.0,40.2,39.0,38.0,37.2,36.5,35.8,35.2,34.8,34.6,34.4,34.5,34.7,34.5,34.0,33.6,33.5,33.8,34.2,34.8,35.5,35.8,36.2,36.5,36.8,37.0,37.5,38.2,39.0,40.0,41.0,41.5]
+    lon: [141.0,141.6,142.1,142.4,141.9,141.3,140.7,140.1,139.4,138.6,137.6,136.7,135.8,135.0,134.3,133.5,132.7,131.9,131.2,130.7,130.9,131.5,132.4,133.4,134.4,135.4,136.4,137.4,138.4,139.4,140.3,140.9,141.0],
+    lat: [41.6,41.1,40.3,39.1,38.1,37.3,36.6,35.9,35.3,34.9,34.7,34.5,34.6,34.8,34.6,34.1,33.7,33.6,33.9,34.4,35.0,35.6,35.9,36.3,36.6,36.9,37.1,37.6,38.3,39.1,40.1,41.1,41.6]
   },
-  // 北海道
   hokkaido: {
-    lon: [139.8,140.5,141.5,142.5,143.5,144.5,145.3,145.5,144.8,143.5,142.0,140.8,139.8],
-    lat: [41.5,42.0,42.5,43.2,43.8,44.0,43.5,42.8,42.0,41.8,41.6,41.5,41.5]
+    lon: [139.8,140.6,141.6,142.6,143.6,144.6,145.4,145.6,144.9,143.6,142.1,140.9,139.8],
+    lat: [41.5,42.1,42.6,43.3,43.9,44.1,43.6,42.9,42.1,41.9,41.7,41.5,41.5]
   },
-  // 九州
   kyushu: {
-    lon: [129.7,130.2,130.8,131.5,131.8,131.5,130.8,130.2,129.5,129.7],
-    lat: [33.5,33.8,33.6,33.0,32.2,31.5,31.2,31.5,32.5,33.5]
+    lon: [129.7,130.3,130.9,131.6,131.9,131.6,130.9,130.3,129.5,129.7],
+    lat: [33.6,33.9,33.7,33.1,32.3,31.6,31.3,31.6,32.6,33.6]
   },
-  // 四国
   shikoku: {
-    lon: [132.0,133.0,134.0,134.5,134.2,133.5,132.5,132.0],
-    lat: [34.0,34.2,34.0,33.6,33.2,33.0,33.3,34.0]
+    lon: [132.0,133.1,134.1,134.6,134.3,133.6,132.6,132.0],
+    lat: [34.1,34.3,34.1,33.7,33.3,33.1,33.4,34.1]
   }
 };
 
-// 海溝ライン
 const japanTrench = {
   lon: [142.0,142.5,143.0,143.5,144.0,144.5,145.0],
   lat: [35.0,36.5,38.0,39.5,41.0,42.0,43.0]
@@ -134,8 +166,7 @@ const nankai = {
   lat: [31.0,31.5,32.0,32.5,33.0,33.5,34.0,34.5]
 };
 
-// スラブ用グリッド生成
-function makeSlab(lonMin, lonMax, latMin, latMax, depthFn, steps=28) {
+function makeSlab(lonMin, lonMax, latMin, latMax, depthFn, steps=30) {
   const x=[], y=[], z=[];
   for(let i=0; i<steps; i++){
     for(let j=0; j<steps; j++){
@@ -147,107 +178,65 @@ function makeSlab(lonMin, lonMax, latMin, latMax, depthFn, steps=28) {
   return {x,y,z};
 }
 
-const pac = makeSlab(138,145,35,43, (lon,lat)=> Math.max(-280, Math.min(0, -(144-lon)*38)));
+const pac = makeSlab(138,145,35,43, (lon)=> Math.max(-280, Math.min(0, -(144-lon)*38)));
 const phs = makeSlab(132,140,30,36, (lon,lat)=> Math.max(-140, Math.min(0, -(lat-32)*48)));
 
-// 地震（直近）
+// 震源データ（クリック用に詳細を持たせる）
 const quakes = [
-  {lon:141.9, lat:38.3, z:-52, mag:4.5, label:"M4.5  MIYAGI OFFSHORE"},
-  {lon:137.69, lat:34.86, z:-38, mag:5.6, label:"M5.6  W-SHIZUOKA"},
-  {lon:142.7, lat:40.3, z:-20, mag:4.1, label:"M4.1  IWATE OFFSHORE"},
-  {lon:130.5, lat:32.5, z:-10, mag:4.5, label:"M4.5  KYUSHU"},
-  {lon:141.5, lat:39.0, z:-30, mag:3.8, label:"M3.8  TOHOKU"}
+  {lon:141.9, lat:38.3, z:-52, mag:4.5, title:"M4.5 宮城県沖", detail:"女川町東方沖<br>深さ 約52km<br>発生：直近24時間以内"},
+  {lon:137.69, lat:34.86, z:-38, mag:5.6, title:"M5.6 静岡県西部", detail:"浜北付近<br>深さ 約38km<br>発生：11月8日 01:04頃"},
+  {lon:142.7, lat:40.3, z:-20, mag:4.1, title:"M4.1 岩手県沖", detail:"岩手県沖<br>深さ 約20km"},
+  {lon:130.5, lat:32.5, z:-10, mag:4.5, title:"M4.5 熊本・天草付近", detail:"熊本県天草・芦北地方付近<br>深さ 約10km"},
+  {lon:141.5, lat:39.0, z:-30, mag:3.8, title:"M3.8 東北沖", detail:"東北地方沖<br>深さ 約30km"}
 ];
 
 const traces = [
-  // 日本列島（ネオンシアン）
-  {type:'scatter3d', mode:'lines', name:'HONSHU',
-   x:japan.honshu.lon, y:japan.honshu.lat, z:Array(japan.honshu.lon.length).fill(2),
+  // 日本列島
+  {type:'scatter3d', mode:'lines', name:'本州',
+   x:japan.honshu.lon, y:japan.honshu.lat, z:Array(japan.honshu.lon.length).fill(3),
+   line:{color:'#00f0ff', width:7}, hoverinfo:'skip'},
+  {type:'scatter3d', mode:'lines', name:'北海道',
+   x:japan.hokkaido.lon, y:japan.hokkaido.lat, z:Array(japan.hokkaido.lon.length).fill(3),
    line:{color:'#00f0ff', width:6}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'HOKKAIDO',
-   x:japan.hokkaido.lon, y:japan.hokkaido.lat, z:Array(japan.hokkaido.lon.length).fill(2),
+  {type:'scatter3d', mode:'lines', name:'九州',
+   x:japan.kyushu.lon, y:japan.kyushu.lat, z:Array(japan.kyushu.lon.length).fill(3),
+   line:{color:'#00f0ff', width:6}, hoverinfo:'skip'},
+  {type:'scatter3d', mode:'lines', name:'四国',
+   x:japan.shikoku.lon, y:japan.shikoku.lat, z:Array(japan.shikoku.lon.length).fill(3),
    line:{color:'#00f0ff', width:5}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'KYUSHU',
-   x:japan.kyushu.lon, y:japan.kyushu.lat, z:Array(japan.kyushu.lon.length).fill(2),
-   line:{color:'#00f0ff', width:5}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'SHIKOKU',
-   x:japan.shikoku.lon, y:japan.shikoku.lat, z:Array(japan.shikoku.lon.length).fill(2),
-   line:{color:'#00f0ff', width:4}, hoverinfo:'skip'},
 
   // 海溝
-  {type:'scatter3d', mode:'lines', name:'JAPAN TRENCH',
+  {type:'scatter3d', mode:'lines', name:'日本海溝',
    x:japanTrench.lon, y:japanTrench.lat, z:Array(7).fill(0),
-   line:{color:'#ff003c', width:7}, hoverinfo:'skip'},
-  {type:'scatter3d', mode:'lines', name:'NANKAI TROUGH',
+   line:{color:'#ff003c', width:8}, hoverinfo:'skip'},
+  {type:'scatter3d', mode:'lines', name:'南海トラフ',
    x:nankai.lon, y:nankai.lat, z:Array(8).fill(0),
-   line:{color:'#ff00aa', width:6}, hoverinfo:'skip'},
+   line:{color:'#ff00aa', width:7}, hoverinfo:'skip'},
 
-  // 太平洋スラブ
-  {type:'mesh3d', name:'PACIFIC SLAB',
+  // スラブ
+  {type:'mesh3d', name:'太平洋プレート',
    x:pac.x, y:pac.y, z:pac.z,
    intensity:pac.z, colorscale:[[0,'#001a33'],[0.5,'#0066aa'],[1,'#00f0ff']],
    opacity:0.55, showscale:false, hoverinfo:'skip'},
-
-  // フィリピン海スラブ
-  {type:'mesh3d', name:'PHILIPPINE SEA SLAB',
+  {type:'mesh3d', name:'フィリピン海プレート',
    x:phs.x, y:phs.y, z:phs.z,
    intensity:phs.z, colorscale:[[0,'#1a001a'],[0.5,'#aa0066'],[1,'#ff00aa']],
    opacity:0.55, showscale:false, hoverinfo:'skip'},
 
-  // 地震
-  {type:'scatter3d', mode:'markers+text', name:'SEISMIC EVENTS',
-   x:quakes.map(q=>q.lon), y:quakes.map(q=>q.lat), z:quakes.map(q=>q.z),
-   text:quakes.map(q=>q.label),
-   textposition:'top center',
-   textfont:{size:11, color:'#ffffff', family:'Share Tech Mono'},
+  // 震源（テキストは非表示、クリックで詳細）
+  {type:'scatter3d', mode:'markers', name:'震源',
+   x:quakes.map(q=>q.lon),
+   y:quakes.map(q=>q.lat),
+   z:quakes.map(q=>q.z),
+   customdata: quakes.map(q => ({title: q.title, detail: q.detail, mag: q.mag})),
    marker:{
-     size:quakes.map(q=>q.mag*5),
+     size:quakes.map(q=>q.mag*6),
      color:'#ff003c',
      opacity:0.95,
      line:{width:2, color:'#ffffff'},
      symbol:'circle'
    },
-   hovertemplate:'%{text}<br>%{x:.2f}°E  %{y:.2f}°N<br>DEPTH %{z:.0f} km<extra></extra>'
+   hovertemplate:'クリックで詳細表示<br>M%{customdata.mag}<extra></extra>'
   },
 
-  // プレート名
-  {type:'scatter3d', mode:'text', showlegend:false,
-   x:[147], y:[38], z:[8], text:['PACIFIC'],
-   textfont:{size:16, color:'#00f0ff', family:'Orbitron'}},
-  {type:'scatter3d', mode:'text', showlegend:false,
-   x:[135], y:[27], z:[8], text:['PHILIPPINE SEA'],
-   textfont:{size:14, color:'#ff00aa', family:'Orbitron'}},
-  {type:'scatter3d', mode:'text', showlegend:false,
-   x:[134], y:[39], z:[12], text:['EURASIA / AMUR'],
-   textfont:{size:13, color:'#aa88ff', family:'Orbitron'}},
-  {type:'scatter3d', mode:'text', showlegend:false,
-   x:[143], y:[45], z:[12], text:['OKHOTSK'],
-   textfont:{size:13, color:'#88ffaa', family:'Orbitron'}}
-];
-
-const layout = {
-  paper_bgcolor: '#02040a',
-  plot_bgcolor: '#02040a',
-  font: {color: '#00f0ff', family: 'Share Tech Mono'},
-  scene: {
-    xaxis: {title: {text:'LONGITUDE', font:{size:11}}, gridcolor:'#003344', zerolinecolor:'#005566', showbackground:true, backgroundcolor:'#03080f'},
-    yaxis: {title: {text:'LATITUDE', font:{size:11}}, gridcolor:'#003344', zerolinecolor:'#005566', showbackground:true, backgroundcolor:'#03080f'},
-    zaxis: {title: {text:'DEPTH (km)', font:{size:11}}, gridcolor:'#003344', zerolinecolor:'#005566', showbackground:true, backgroundcolor:'#03080f'},
-    aspectmode: 'manual',
-    aspectratio: {x:1.25, y:1, z:0.32},
-    camera: {eye: {x:1.55, y:-1.85, z:0.85}},
-    bgcolor: '#02040a'
-  },
-  margin: {l:0, r:0, t:0, b:0},
-  showlegend: false
-};
-
-Plotly.newPlot('plot', traces, layout, {
-  responsive: true,
-  displayModeBar: true,
-  modeBarButtonsToRemove: ['toImage','sendDataToCloud'],
-  displaylogo: false
-});
-</script>
-</body>
-</html>
+  // プレート名（日本語）
