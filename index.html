@@ -1,297 +1,1348 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>攻殻機動隊風｜日本周辺プレート＋地震 3D</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600&family=Noto+Sans+JP:wght@400;700&display=swap');
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>地震情報 ✕ 3Dテクトニクス・プレート沈み込みビジュアライザー</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js & OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+    
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Noto Sans JP', sans-serif;
+      background-color: #030712;
+      color: #f3f4f6;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      display: block;
+    }
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.55);
+    }
+    .quake-card {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .quake-card:hover {
+      background: rgba(30, 41, 59, 0.85);
+      border-color: rgba(56, 189, 248, 0.4);
+      transform: translateX(4px);
+    }
+    .quake-card.active {
+      background: rgba(30, 58, 138, 0.5);
+      border-color: #38bdf8;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.25);
+    }
+    .plate-badge-amur { border-left: 4px solid #10b981; }
+    .plate-badge-philippine { border-left: 4px solid #ec4899; }
+    .plate-badge-pacific { border-left: 4px solid #3b82f6; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body {
-    width: 100%; height: 100%;
-    background: #02040a;
-    color: #00f0ff;
-    font-family: 'Noto Sans JP', sans-serif;
-    overflow: hidden;
-  }
-  body::before {
-    content: "";
-    position: fixed; inset: 0;
-    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.03) 2px, rgba(0,240,255,0.03) 4px);
-    pointer-events: none; z-index: 100;
-  }
-  #hud {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
-    background: linear-gradient(180deg, rgba(0,8,18,0.97) 0%, transparent 100%);
-    padding: 18px 32px 40px;
-    border-bottom: 1px solid #00f0ff44;
-  }
-  .title {
-    font-family: 'Orbitron', 'Noto Sans JP', sans-serif;
-    font-size: 1.7rem; letter-spacing: 5px;
-    color: #00f0ff;
-    text-shadow: 0 0 14px #00f0ff, 0 0 40px #00f0ff66;
-  }
-  .subtitle { font-size: 0.95rem; color: #ff00aa; margin-top: 5px; letter-spacing: 2px; }
-  .status {
-    position: absolute; top: 20px; right: 32px;
-    font-size: 0.85rem; color: #00ff9f; text-align: right; line-height: 1.5;
-  }
-  #plot { width: 100%; height: 100%; }
-  #info-panel {
-    position: absolute; bottom: 28px; right: 28px; width: 360px;
-    background: rgba(0,12,24,0.94); border: 1px solid #00f0ff;
-    box-shadow: 0 0 25px #00f0ff55; padding: 18px 22px; z-index: 30;
-    display: none; font-size: 0.95rem; line-height: 1.65;
-  }
-  #info-panel h3 { color: #ff003c; font-size: 1.15rem; margin-bottom: 10px; }
-  #info-panel .close {
-    position: absolute; top: 10px; right: 14px; cursor: pointer;
-    color: #00f0ff; font-size: 1.3rem;
-  }
-  #info-panel .close:hover { color: #ff00aa; }
-  #footer {
-    position: absolute; bottom: 16px; left: 24px;
-    font-size: 0.8rem; color: #00f0ff99; z-index: 20; line-height: 1.55;
-  }
-</style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+
+    /* 3D Label Markers */
+    .plate-label {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 20;
+      white-space: nowrap;
+      transition: opacity 0.2s ease;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+  </style>
 </head>
-<body>
+<body class="w-full h-full relative overflow-hidden bg-slate-950">
 
-<div id="hud">
-  <div class="title">SECTION-9 // 地殻プレート監視網</div>
-  <div class="subtitle">日本周辺プレート境界 + 直近地震活動</div>
-  <div class="status">システム稼働中<br>深さ誇張表示 ×3.5</div>
-</div>
+  <!-- 3D Canvas -->
+  <canvas id="webgl-canvas"></canvas>
 
-<div id="plot"></div>
+  <!-- 3D Overlay Labels Container -->
+  <div id="labels-container" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
 
-<div id="info-panel">
-  <div class="close" onclick="document.getElementById('info-panel').style.display='none'">×</div>
-  <h3 id="info-title">震源情報</h3>
-  <div id="info-body"></div>
-</div>
+  <!-- Header / Navigation Bar -->
+  <header class="absolute top-3 left-3 right-3 z-20 flex flex-wrap justify-between items-center pointer-events-none gap-2">
+    <div class="glass-panel px-3.5 py-2 rounded-xl pointer-events-auto flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 via-indigo-600 to-rose-500 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
+        <svg class="w-4 h-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xs md:text-sm font-bold tracking-wider text-slate-100 flex items-center gap-2">
+          地震情報 ✕ 3Dプレート構造ビューア
+          <span class="text-[9px] font-mono px-1.5 py-0.2 rounded bg-red-500/20 text-rose-300 border border-rose-500/30">LIVE & ARCHIVE</span>
+        </h1>
+        <p class="text-[10px] text-slate-400">nuppeppou 地震観測データ ✕ 太平洋・フィリピン海・アムールプレート沈み込み立体構造</p>
+      </div>
+    </div>
 
-<div id="footer">
-  太平洋＝シアン　｜　フィリピン海＝マゼンタ　｜　オホーツク＝黄緑<br>
-  アムール＝紫　｜　北米＝オレンジ　｜　赤い球をクリックで震源詳細
-</div>
+    <!-- Quick Camera & Top Controls -->
+    <div class="glass-panel px-2.5 py-1.5 rounded-xl pointer-events-auto flex items-center gap-1.5 text-xs">
+      <!-- Toggle Sidebar Button -->
+      <button id="btn-toggle-sidebar" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/40 transition-all font-medium text-[11px]">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+        </svg>
+        <span id="sidebar-toggle-text">地震リスト</span>
+      </button>
 
-<script>
-/* ===== より詳細な日本列島輪郭 ===== */
-const japan = {
-  // 本州（かなり詳細）
-  honshu: {
-    lon: [
-      140.95,141.40,141.85,142.15,142.35,142.20,141.90,141.55,141.15,140.70,
-      140.25,139.80,139.35,138.85,138.30,137.70,137.10,136.50,135.95,135.40,
-      134.85,134.30,133.75,133.20,132.70,132.25,131.85,131.50,131.30,131.45,
-      131.80,132.30,132.90,133.50,134.15,134.80,135.40,136.00,136.60,137.20,
-      137.80,138.40,139.00,139.55,140.05,140.50,140.85,141.10,140.95
-    ],
-    lat: [
-      41.55,41.20,40.70,40.10,39.40,38.70,38.00,37.40,36.85,36.35,
-      35.90,35.50,35.15,34.90,34.75,34.70,34.75,34.90,35.05,34.95,
-      34.70,34.40,34.15,34.00,33.95,34.15,34.50,34.90,35.30,35.70,
-      36.05,36.30,36.50,36.65,36.80,36.95,37.10,37.30,37.55,37.85,
-      38.20,38.60,39.05,39.55,40.05,40.55,41.00,41.40,41.55
-    ]
-  },
-  // 北海道
-  hokkaido: {
-    lon: [
-      139.75,140.20,140.70,141.25,141.85,142.50,143.15,143.80,144.40,144.95,
-      145.35,145.55,145.40,144.90,144.20,143.40,142.60,141.80,141.10,140.50,
-      140.00,139.75
-    ],
-    lat: [
-      41.45,41.80,42.20,42.55,42.90,43.25,43.55,43.80,43.95,43.85,
-      43.50,42.95,42.40,42.00,41.80,41.70,41.65,41.55,41.50,41.45,
-      41.40,41.45
-    ]
-  },
-  // 九州
-  kyushu: {
-    lon: [
-      129.65,130.05,130.50,131.00,131.45,131.75,131.85,131.60,131.15,130.60,
-      130.10,129.70,129.50,129.55,129.65
-    ],
-    lat: [
-      33.55,33.80,33.75,33.40,32.95,32.40,31.80,31.35,31.15,31.25,
-      31.55,32.00,32.55,33.15,33.55
-    ]
-  },
-  // 四国
-  shikoku: {
-    lon: [
-      132.05,132.60,133.20,133.80,134.30,134.55,134.40,133.90,133.30,132.70,
-      132.25,132.05
-    ],
-    lat: [
-      34.05,34.20,34.15,33.95,33.70,33.35,33.05,32.95,33.05,33.25,
-      33.60,34.05
-    ]
-  }
-};
+      <!-- Auto Rotate Toggle -->
+      <button id="btn-toggle-rotate" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 text-slate-300 hover:bg-white/20 border border-white/15 transition-all text-[11px]">
+        <svg id="rotate-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.9 1 6.7 2.8L21 8"></path>
+          <polyline points="21 3 21 8 16 8"></polyline>
+        </svg>
+        <span id="rotate-text">自転: ON</span>
+      </button>
 
-const japanTrench = {
-  lon: [142.0,142.4,142.9,143.4,143.9,144.4,144.9,145.3],
-  lat: [35.0,36.2,37.5,38.8,40.0,41.1,42.0,42.8]
-};
-const nankai = {
-  lon: [131.8,132.6,133.5,134.4,135.3,136.2,137.1,138.0,138.8],
-  lat: [30.8,31.3,31.8,32.3,32.8,33.3,33.8,34.3,34.7]
-};
+      <div class="h-4 w-[1px] bg-white/20 mx-0.5"></div>
 
-/* ワイヤーフレーム生成 */
-function makeWireframe(lonMin, lonMax, latMin, latMax, depthFn, steps = 9) {
-  const traces = [];
-  for (let i = 0; i <= steps; i++) {
-    const lat = latMin + (latMax - latMin) * i / steps;
-    const x = [], y = [], z = [];
-    for (let j = 0; j <= steps; j++) {
-      const lon = lonMin + (lonMax - lonMin) * j / steps;
-      x.push(lon); y.push(lat); z.push(depthFn(lon, lat));
-    }
-    traces.push({ x, y, z });
-  }
-  for (let j = 0; j <= steps; j++) {
-    const lon = lonMin + (lonMax - lonMin) * j / steps;
-    const x = [], y = [], z = [];
-    for (let i = 0; i <= steps; i++) {
-      const lat = latMin + (latMax - latMin) * i / steps;
-      x.push(lon); y.push(lat); z.push(depthFn(lon, lat));
-    }
-    traces.push({ x, y, z });
-  }
-  return traces;
-}
+      <!-- Preset Views -->
+      <div class="flex items-center gap-1">
+        <button data-view="front" class="btn-preset px-2 py-1 rounded-md hover:bg-white/10 text-slate-300 hover:text-white transition text-[11px]">日本正面</button>
+        <button data-view="cross" class="btn-preset px-2 py-1 rounded-md hover:bg-white/10 text-slate-300 hover:text-white transition text-[11px]">沈み込み断面</button>
+        <button data-view="top" class="btn-preset px-2 py-1 rounded-md hover:bg-white/10 text-slate-300 hover:text-white transition text-[11px]">俯瞰</button>
+      </div>
+    </div>
+  </header>
 
-/* ===== 各プレート ===== */
-const pacWires  = makeWireframe(138.0, 146.0, 34.0, 44.0, lon => Math.max(-280, Math.min(0, -(144.3 - lon) * 37)));
-const phsWires  = makeWireframe(131.0, 140.5, 29.0, 36.5, (lon, lat) => Math.max(-140, Math.min(0, -(lat - 31.5) * 46)));
-const okhWires  = makeWireframe(139.5, 149.0, 39.5, 47.5, (lon, lat) => Math.max(-55, -6 - Math.max(0, 145.5 - lon) * 2.8));
-const amurWires = makeWireframe(127.5, 140.0, 33.5, 45.0, (lon, lat) => Math.max(-35, -4 - Math.max(0, lon - 136) * 2.2));
-const namWires  = makeWireframe(142.0, 155.0, 44.0, 52.0, (lon, lat) => Math.max(-40, -5 - Math.max(0, 148 - lon) * 1.5)); // 北米プレート
+  <!-- Left Sidebar: Earthquake Feed / nuppeppou-style Site Integration -->
+  <aside id="quake-sidebar" class="absolute left-3 top-16 bottom-3 w-80 md:w-96 glass-panel rounded-2xl p-3.5 z-20 pointer-events-auto flex flex-col justify-between transition-all duration-300 shadow-2xl">
+    <div class="flex flex-col h-full overflow-hidden">
+      
+      <!-- Feed Header & Tabs -->
+      <div class="border-b border-white/10 pb-3 mb-2">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+            地震情報フィード
+          </span>
+          <button id="btn-refresh-quakes" class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-cyan-300 transition text-[11px] flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <polyline points="1 20 1 14 7 14"></polyline>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            更新
+          </button>
+        </div>
 
-const quakes = [
-  {lon:141.9, lat:38.3, z:-52, mag:4.5, title:"M4.5 宮城県沖", detail:"女川町東方沖<br>深さ 約52km<br>発生：直近24時間以内"},
-  {lon:137.69, lat:34.86, z:-38, mag:5.6, title:"M5.6 静岡県西部", detail:"浜北付近<br>深さ 約38km<br>発生：11月8日 01:04頃"},
-  {lon:142.7, lat:40.3, z:-20, mag:4.1, title:"M4.1 岩手県沖", detail:"岩手県沖<br>深さ 約20km"},
-  {lon:130.5, lat:32.5, z:-10, mag:4.5, title:"M4.5 熊本・天草付近", detail:"熊本県天草・芦北地方付近<br>深さ 約10km"},
-  {lon:141.5, lat:39.0, z:-30, mag:3.8, title:"M3.8 東北沖", detail:"東北地方沖<br>深さ 約30km"}
-];
+        <!-- Mode Buttons -->
+        <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-900/60 rounded-xl border border-white/5 text-xs">
+          <button id="tab-recent" class="py-1.5 px-2 rounded-lg bg-cyan-600/30 text-cyan-200 border border-cyan-500/40 font-semibold text-center transition">最新・直近地震</button>
+          <button id="tab-major" class="py-1.5 px-2 rounded-lg text-slate-400 hover:text-white text-center transition">主要・歴史的大地震</button>
+        </div>
 
-const traces = [];
+        <!-- Filter Badges -->
+        <div class="flex items-center gap-1.5 mt-2.5 overflow-x-auto text-[10px]">
+          <span class="text-slate-400 shrink-0">絞込:</span>
+          <button data-filter="all" class="btn-filter px-2 py-0.5 rounded-full bg-white/20 text-white font-medium">すべて</button>
+          <button data-filter="m5" class="btn-filter px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 hover:text-white">M5.0以上</button>
+          <button data-filter="deep" class="btn-filter px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 hover:text-white">深発(>70km)</button>
+        </div>
+      </div>
 
-/* 日本列島（詳細版） */
-['honshu','hokkaido','kyushu','shikoku'].forEach(name => {
-  const d = japan[name];
-  traces.push({
-    type: 'scatter3d', mode: 'lines',
-    x: d.lon, y: d.lat, z: Array(d.lon.length).fill(5),
-    line: { color: '#00f0ff', width: name === 'honshu' ? 5.5 : 4.5 },
-    hoverinfo: 'skip', showlegend: false
-  });
-});
+      <!-- Earthquake Cards Scroll Area -->
+      <div id="quake-list-container" class="flex-1 overflow-y-auto space-y-2 pr-1 my-1">
+        <!-- Rendered dynamically -->
+      </div>
 
-/* 海溝 */
-traces.push({
-  type: 'scatter3d', mode: 'lines',
-  x: japanTrench.lon, y: japanTrench.lat, z: Array(japanTrench.lon.length).fill(0),
-  line: { color: '#ff003c', width: 6.5 }, hoverinfo: 'skip', showlegend: false
-});
-traces.push({
-  type: 'scatter3d', mode: 'lines',
-  x: nankai.lon, y: nankai.lat, z: Array(nankai.lon.length).fill(0),
-  line: { color: '#ff00aa', width: 5.5 }, hoverinfo: 'skip', showlegend: false
-});
+      <!-- Quick Tectonics Legend & Layer Toggle -->
+      <div class="border-t border-white/10 pt-2.5 mt-1 text-[11px] text-slate-400">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="font-medium text-slate-300">プレート立体表示</span>
+          <div class="flex gap-2">
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" id="chk-slab" checked class="accent-cyan-500 w-3 h-3">
+              <span class="text-[10px]">スラブ層</span>
+            </label>
+            <label class="flex items-center gap-1 cursor-pointer">
+              <input type="checkbox" id="chk-arrows" checked class="accent-cyan-500 w-3 h-3">
+              <span class="text-[10px]">移動矢印</span>
+            </label>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-[10px] text-slate-400">
+          <span>クリックで震源へズーム</span>
+          <a href="https://nuppeppou.github.io/earthquake/" target="_blank" rel="noopener" class="text-cyan-400 hover:underline flex items-center gap-0.5">
+            元サイトを開く
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </a>
+        </div>
+      </div>
 
-/* プレートワイヤー */
-function addWires(wires, color, opacity = 0.72) {
-  wires.forEach(w => {
-    traces.push({
-      type: 'scatter3d', mode: 'lines',
-      x: w.x, y: w.y, z: w.z,
-      line: { color, width: 1.6 },
-      opacity, hoverinfo: 'skip', showlegend: false
+    </div>
+  </aside>
+
+  <!-- Earthquake Detail Modal / Popup Card (Triggered by 3D Click or List Click) -->
+  <div id="quake-detail-modal" class="absolute bottom-5 left-1/2 -translate-x-1/2 md:translate-x-0 md:left-auto md:right-5 z-30 glass-panel p-4 rounded-2xl border border-cyan-500/40 shadow-2xl max-w-sm w-full transition-all duration-300 transform translate-y-8 opacity-0 pointer-events-none">
+    <div class="flex items-start justify-between border-b border-white/10 pb-2 mb-2.5">
+      <div>
+        <div class="flex items-center gap-1.5">
+          <span id="modal-shindo-badge" class="px-2 py-0.5 rounded font-black text-xs bg-red-600 text-white shadow">震度5弱</span>
+          <h2 id="modal-title" class="font-bold text-slate-100 text-sm">震源地情報</h2>
+        </div>
+        <div id="modal-time" class="text-[10px] font-mono text-slate-400 mt-0.5">2026/00/00 00:00:00</div>
+      </div>
+      <button id="btn-close-modal" class="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+      <div class="p-2 rounded-xl bg-slate-900/60 border border-white/5">
+        <div class="text-[10px] text-slate-400">マグニチュード (M)</div>
+        <div id="modal-mag" class="text-base font-black text-amber-300 font-mono">-</div>
+      </div>
+      <div class="p-2 rounded-xl bg-slate-900/60 border border-white/5">
+        <div class="text-[10px] text-slate-400">震源の深さ</div>
+        <div id="modal-depth" class="text-base font-black text-cyan-300 font-mono">-</div>
+      </div>
+    </div>
+
+    <div class="p-2.5 rounded-xl bg-slate-900/80 border border-cyan-500/20 text-[11px] leading-relaxed">
+      <div class="text-cyan-300 font-bold mb-1 flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+        </svg>
+        3Dテクトニクス連動解説
+      </div>
+      <p id="modal-desc" class="text-slate-300">-</p>
+    </div>
+  </div>
+
+  <!-- Bottom Legend Overlay -->
+  <footer class="absolute bottom-3 right-3 hidden lg:flex z-20 pointer-events-none">
+    <div class="glass-panel px-3.5 py-2 rounded-xl pointer-events-auto flex items-center gap-3 text-xs">
+      <div class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-blue-500 shadow-sm shadow-blue-500/50"></span>
+        <span class="text-slate-200 text-[11px]">太平洋P (沈み込み)</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-pink-500 shadow-sm shadow-pink-500/50"></span>
+        <span class="text-slate-200 text-[11px]">フィリピン海P (沈み込み)</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="w-3 h-3 rounded bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+        <span class="text-slate-200 text-[11px]">アムールP (大陸地殻)</span>
+      </div>
+      <div class="h-3 w-[1px] bg-white/20"></div>
+      <div class="flex items-center gap-2 text-[10px]">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span>浅発 (0-30km)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-500"></span>中発 (30-100km)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cyan-400"></span>深発 (100km+)</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Earthquake Hover Floating Tooltip -->
+  <div id="quake-tooltip" class="absolute hidden z-30 glass-panel p-2.5 rounded-xl border border-red-500/40 shadow-2xl pointer-events-none transition-opacity duration-150 text-xs max-w-xs">
+    <div class="flex items-center gap-1.5 mb-1 border-b border-white/10 pb-1">
+      <span class="w-2 h-2 rounded-full bg-red-400 animate-ping"></span>
+      <span id="tooltip-title" class="font-bold text-red-200 text-xs">震源地情報</span>
+    </div>
+    <div class="space-y-0.5 text-slate-300 text-[11px]">
+      <div class="flex justify-between"><span class="text-slate-400">規模:</span> <span id="tooltip-mag" class="font-mono font-bold text-amber-300">-</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">深さ:</span> <span id="tooltip-depth" class="font-mono text-cyan-300">-</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">最大震度:</span> <span id="tooltip-shindo" class="font-bold text-rose-300">-</span></div>
+    </div>
+  </div>
+
+  <script>
+    /* ========================================================================
+       Three.js Scene Setup & Combined Earthquake Visualizer
+       ======================================================================== */
+
+    const canvas = document.getElementById('webgl-canvas');
+    const labelsContainer = document.getElementById('labels-container');
+
+    // 1. Scene, Camera, Renderer
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x030712, 0.024);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(22, 18, 26);
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: false,
+      powerPreference: "high-performance"
     });
-  });
-}
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-addWires(pacWires,  '#00f0ff');   // 太平洋
-addWires(phsWires,  '#ff00aa');   // フィリピン海
-addWires(okhWires,  '#88ff66');   // オホーツク
-addWires(amurWires, '#aa88ff');   // アムール
-addWires(namWires,  '#ffaa44');   // 北米
+    // Orbit Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxDistance = 60;
+    controls.minDistance = 6;
+    controls.maxPolarAngle = Math.PI / 2 + 0.15;
 
-/* 震源 */
-traces.push({
-  type: 'scatter3d', mode: 'markers', name: '震源',
-  x: quakes.map(q => q.lon),
-  y: quakes.map(q => q.lat),
-  z: quakes.map(q => q.z),
-  customdata: quakes.map(q => ({ title: q.title, detail: q.detail, mag: q.mag })),
-  marker: {
-    size: quakes.map(q => q.mag * 5.2),
-    color: '#ff003c',
-    opacity: 0.95,
-    line: { width: 2, color: '#ffffff' }
-  },
-  hovertemplate: 'クリックで詳細表示<br>M%{customdata.mag}<extra></extra>'
-});
+    // Global Group
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
 
-/* プレート名 */
-const labels = [
-  {x:146.8, y:37.0, z:15, text:'太平洋プレート', color:'#00f0ff'},
-  {x:134.0, y:27.0, z:15, text:'フィリピン海プレート', color:'#ff00aa'},
-  {x:145.0, y:45.5, z:20, text:'オホーツクプレート', color:'#88ff66'},
-  {x:131.5, y:41.5, z:20, text:'アムールプレート', color:'#aa88ff'},
-  {x:149.0, y:48.5, z:22, text:'北米プレート', color:'#ffaa44'}
-];
-labels.forEach(l => {
-  traces.push({
-    type: 'scatter3d', mode: 'text', showlegend: false,
-    x: [l.x], y: [l.y], z: [l.z], text: [l.text],
-    textfont: { size: 15, color: l.color, family: 'Noto Sans JP' }
-  });
-});
+    /* ========================================================================
+       2. Lighting & Atmosphere
+       ======================================================================== */
+    const ambientLight = new THREE.AmbientLight(0xd9e5ff, 0.65);
+    scene.add(ambientLight);
 
-const layout = {
-  paper_bgcolor: '#02040a',
-  plot_bgcolor: '#02040a',
-  font: { color: '#00f0ff', family: 'Noto Sans JP', size: 12 },
-  scene: {
-    xaxis: { title: '経度 (°E)', gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f', range: [126, 156] },
-    yaxis: { title: '緯度 (°N)', gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f', range: [26, 53] },
-    zaxis: { title: '深さ (km)', gridcolor: '#003344', zerolinecolor: '#005566', showbackground: true, backgroundcolor: '#03080f', range: [-300, 45] },
-    aspectmode: 'manual',
-    aspectratio: { x: 1.4, y: 1, z: 0.34 },
-    camera: { eye: { x: 1.55, y: -1.95, z: 0.95 } },
-    bgcolor: '#02040a'
-  },
-  margin: { l: 0, r: 0, t: 0, b: 0 },
-  showlegend: false
-};
+    const sunLight = new THREE.DirectionalLight(0xfff7ed, 2.2);
+    sunLight.position.set(25, 40, 20);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    scene.add(sunLight);
 
-const plotDiv = document.getElementById('plot');
-Plotly.newPlot(plotDiv, traces, layout, {
-  responsive: true,
-  displayModeBar: true,
-  modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
-  displaylogo: false
-});
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.4);
+    rimLight.position.set(-20, -10, -20);
+    scene.add(rimLight);
 
-plotDiv.on('plotly_click', function(data) {
-  const pt = data.points[0];
-  if (pt && pt.customdata) {
-    document.getElementById('info-title').innerHTML = pt.customdata.title;
-    document.getElementById('info-body').innerHTML = pt.customdata.detail;
-    document.getElementById('info-panel').style.display = 'block';
-  }
-});
-</script>
+    // Stars background
+    const starCount = 1200;
+    const starGeo = new THREE.BufferGeometry();
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i += 3) {
+      starPos[i] = (Math.random() - 0.5) * 160;
+      starPos[i+1] = Math.random() * 80 + 10;
+      starPos[i+2] = (Math.random() - 0.5) * 160;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0x94a3b8, size: 0.6, transparent: true, opacity: 0.7 });
+    scene.add(new THREE.Points(starGeo, starMat));
+
+    // Base Rings
+    const ringGeo = new THREE.RingGeometry(18, 18.25, 64);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.rotation.x = -Math.PI / 2;
+    ringMesh.position.y = -7.5;
+    worldGroup.add(ringMesh);
+
+    /* ========================================================================
+       3. Geographically Aligned Surface Map & Lithosphere Cutaway
+       ======================================================================== */
+    // Geodetic parameters for the 3D block
+    // Center: 36.0°N, 137.5°E
+    const GEO_REF = {
+      lat: 36.0,
+      lon: 137.5,
+      scaleX: 1.15, // 1 degree longitude in 3D units (+X = East)
+      scaleZ: 1.40, // 1 degree latitude in 3D units (-Z = North)
+      minLon: 124.0,
+      maxLon: 151.0,
+      minLat: 24.0,
+      maxLat: 46.5
+    };
+
+    function geoTo3D(lat, lon, depthKm = 0) {
+      // +X is East, -Z is North, -Y is depth into Earth
+      const x = (lon - GEO_REF.lon) * GEO_REF.scaleX;
+      const z = -(lat - GEO_REF.lat) * GEO_REF.scaleZ;
+      const y = -(depthKm / 60.0) * 0.9;
+      return new THREE.Vector3(x, y, z);
+    }
+
+    const blockRadius = 16.5;
+    const blockHeight = 4.8;
+
+    function generateJapanSurfaceTexture() {
+      const texCanvas = document.createElement('canvas');
+      texCanvas.width = 2048;
+      texCanvas.height = 2048;
+      const ctx = texCanvas.getContext('2d');
+
+      // Standard geographic projection to square texture
+      // West (lon 124) is 0, East (lon 151) is 2048 (NO INVERSION - Correct geography)
+      // North (lat 46.5) is 0, South (lat 24) is 2048
+      function toPx(lon, lat) {
+        const u = (lon - GEO_REF.minLon) / (GEO_REF.maxLon - GEO_REF.minLon);
+        const v = 1.0 - ((lat - GEO_REF.minLat) / (GEO_REF.maxLat - GEO_REF.minLat));
+        return [u * 2048, v * 2048];
+      }
+
+      // Deep ocean background
+      const oceanGrad = ctx.createRadialGradient(1024, 1024, 100, 1024, 1024, 1200);
+      oceanGrad.addColorStop(0, '#0a1d37');
+      oceanGrad.addColorStop(0.6, '#061325');
+      oceanGrad.addColorStop(1, '#020712');
+      ctx.fillStyle = oceanGrad;
+      ctx.fillRect(0, 0, 2048, 2048);
+
+      // Sea of Japan (West of Honshu, East of Asian Continent)
+      ctx.fillStyle = '#0b294a';
+      const [sojX, sojY] = toPx(134.5, 40.0);
+      ctx.beginPath();
+      ctx.ellipse(sojX, sojY, 240, 170, -0.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Deep Pacific Trenches (Deep blue-black troughs on the East/South)
+      ctx.strokeStyle = '#01050d';
+      ctx.lineWidth = 36;
+      ctx.filter = 'blur(10px)';
+
+      // Kuril & Japan Trench (East of Japan)
+      ctx.beginPath();
+      const kurilTrench = [[149, 45], [146, 43], [144, 41], [143.8, 39], [144, 37], [143, 35], [141.2, 34]];
+      kurilTrench.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      // Izu-Ogasawara Trench (South-East)
+      ctx.beginPath();
+      const izuTrench = [[141.2, 34], [141.6, 31], [142, 28], [143, 25]];
+      izuTrench.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      // Nankai & Ryukyu Trough (South of Honshu & Shikoku)
+      ctx.beginPath();
+      const nankaiTrench = [[138.8, 35.0], [137.5, 34.0], [135.5, 33.0], [133.0, 31.5], [129.5, 28.5], [126.5, 26.0]];
+      nankaiTrench.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.filter = 'none';
+
+      // Asian Continent (Far West / NW: Primorsky, Korea, China)
+      ctx.fillStyle = '#1e3a1e';
+      ctx.strokeStyle = '#2d582d';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const continent = [
+        [124, 46.5], [136, 46.5], [133, 43], [131, 41.5], [129.5, 39], [128.5, 37],
+        [129, 35], [126.5, 34.5], [125.5, 36.5], [124.5, 38], [124, 40], [124, 46.5]
+      ];
+      continent.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Japanese Islands (Realistic geometry: West to East)
+      ctx.fillStyle = '#2e5a1c';
+      ctx.strokeStyle = '#4d882d';
+      ctx.lineWidth = 3;
+
+      // Hokkaido
+      ctx.beginPath();
+      const hokkaido = [
+        [140, 41.4], [140.8, 42], [141.6, 42.6], [143.2, 42.8], [145.5, 43.3],
+        [145.8, 44.3], [143, 44.4], [141.8, 45.5], [141.5, 44.0], [140.2, 43.2], [140, 41.4]
+      ];
+      hokkaido.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Honshu
+      ctx.beginPath();
+      const honshu = [
+        [140.8, 41.5], [141.5, 40.5], [142.0, 39.5], [141.5, 38.3], [140.9, 37.0],
+        [140.7, 35.7], [139.7, 35.3], [139.0, 34.8], [137.5, 34.6], [136.8, 35.0],
+        [135.8, 33.4], [135.0, 34.2], [133.0, 34.3], [131.0, 34.0], [132.0, 35.0],
+        [133.5, 35.5], [136.0, 36.2], [137.0, 37.5], [138.5, 37.5], [139.8, 39.0],
+        [140.0, 40.8], [140.8, 41.5]
+      ];
+      honshu.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Shikoku
+      ctx.beginPath();
+      const shikoku = [
+        [134.5, 34.2], [134.7, 33.8], [134.2, 33.3], [133.0, 32.7], [132.2, 33.0], [132.5, 33.8], [134.0, 34.4]
+      ];
+      shikoku.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Kyushu
+      ctx.beginPath();
+      const kyushu = [
+        [131.0, 33.9], [131.8, 33.2], [131.5, 32.0], [131.4, 31.3], [130.6, 31.0],
+        [130.2, 32.0], [129.8, 32.8], [130.2, 33.6], [131.0, 33.9]
+      ];
+      kyushu.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      // Trench Dashed Lines
+      ctx.setLineDash([8, 8]);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      kurilTrench.concat(izuTrench).forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(236, 72, 153, 0.65)';
+      ctx.beginPath();
+      nankaiTrench.forEach(([ln, lt], i) => {
+        const [px, py] = toPx(ln, lt);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      return new THREE.CanvasTexture(texCanvas);
+    }
+
+    const surfaceTexture = generateJapanSurfaceTexture();
+    surfaceTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+    // Mantle side cutaway texture
+    function generateMantleCutawayTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1024;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createLinearGradient(0, 0, 0, 256);
+      grad.addColorStop(0, '#334155');
+      grad.addColorStop(0.12, '#475569');
+      grad.addColorStop(0.18, '#b45309');
+      grad.addColorStop(0.65, '#78350f');
+      grad.addColorStop(1.0, '#381304');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1024, 256);
+      return new THREE.CanvasTexture(c);
+    }
+
+    // Cylindrical Block Base & Sides
+    const cutawayGeo = new THREE.CylinderGeometry(blockRadius, blockRadius, blockHeight, 96, 1, false);
+    const mantleSideTexture = generateMantleCutawayTexture();
+    mantleSideTexture.wrapS = THREE.RepeatWrapping;
+    mantleSideTexture.repeat.set(4, 1);
+
+    const cutawayMesh = new THREE.Mesh(cutawayGeo, [
+      new THREE.MeshStandardMaterial({ map: mantleSideTexture, roughness: 0.8 }),
+      new THREE.MeshBasicMaterial({ color: 0x0a1d37 }), // top base occluder
+      new THREE.MeshStandardMaterial({ color: 0x180f08, roughness: 0.95 })
+    ]);
+    cutawayMesh.position.y = -blockHeight / 2;
+    cutawayMesh.receiveShadow = true;
+    worldGroup.add(cutawayMesh);
+
+    // SURFACE PLANE: Independent plane with 1:1 geographic bounding box
+    // Fits exactly with geoTo3D() math without cylinder UV artifacts or mirroring
+    const surfaceWidth = (GEO_REF.maxLon - GEO_REF.minLon) * GEO_REF.scaleX;
+    const surfaceHeight = (GEO_REF.maxLat - GEO_REF.minLat) * GEO_REF.scaleZ;
+    const surfaceGeo = new THREE.PlaneGeometry(surfaceWidth, surfaceHeight, 1, 1);
+    const surfaceMat = new THREE.MeshStandardMaterial({
+      map: surfaceTexture,
+      roughness: 0.55,
+      metalness: 0.1
+    });
+    const surfaceMesh = new THREE.Mesh(surfaceGeo, surfaceMat);
+    // Plane is created in XY plane. Rotate X -90 deg so +Y is up, +X is East, -Z is North
+    surfaceMesh.rotation.x = -Math.PI / 2;
+    // Offset center of plane if GEO_REF center differs from bounds midpoint
+    const centerLon = (GEO_REF.minLon + GEO_REF.maxLon) / 2;
+    const centerLat = (GEO_REF.minLat + GEO_REF.maxLat) / 2;
+    surfaceMesh.position.x = (centerLon - GEO_REF.lon) * GEO_REF.scaleX;
+    surfaceMesh.position.z = -(centerLat - GEO_REF.lat) * GEO_REF.scaleZ;
+    surfaceMesh.position.y = 0.02; // Sits right on top of cutaway
+    surfaceMesh.receiveShadow = true;
+    worldGroup.add(surfaceMesh);
+
+    /* ========================================================================
+       4. Geographically Accurate Subducting Slabs & Boundaries
+       ======================================================================== */
+    const plateSlabsGroup = new THREE.Group();
+    worldGroup.add(plateSlabsGroup);
+
+    // Trench Guide Coordinates (Geographically correct in Pacific and Nankai)
+    const japanTrenchPoints = [
+      { lat: 44.5, lon: 147.5 },
+      { lat: 42.5, lon: 145.0 },
+      { lat: 40.5, lon: 144.0 },
+      { lat: 38.1, lon: 143.8 }, // Sanriku-oki (East of Honshu, East of 2011 Epicenter)
+      { lat: 36.5, lon: 143.0 }, // Fukushima/Ibaraki-oki
+      { lat: 34.5, lon: 141.2 }, // Boso Triple Junction
+      { lat: 31.0, lon: 141.8 }, // Izu-Ogasawara
+      { lat: 27.0, lon: 142.5 }
+    ];
+
+    const nankaiTroughPoints = [
+      { lat: 35.1, lon: 138.8 }, // Suruga Trough
+      { lat: 34.2, lon: 137.5 }, // Enshu-nada
+      { lat: 33.2, lon: 136.0 }, // Kumano-nada
+      { lat: 32.5, lon: 134.5 }, // Nankai
+      { lat: 31.0, lon: 132.5 }, // Hyuga-nada
+      { lat: 28.5, lon: 129.5 }, // Amami
+      { lat: 26.0, lon: 126.5 }  // Okinawa / Ryukyu Trench
+    ];
+
+    // Subducting Slab Generator following trench spline
+    function createSubductingSlabFromTrench(trenchPoints, subductionDir, dipAngleRad, widthDepthKm, segmentsY = 30) {
+      const spline = new THREE.CatmullRomCurve3(
+        trenchPoints.map(p => geoTo3D(p.lat, p.lon, 0))
+      );
+      const pointsOnTrench = spline.getPoints(trenchPoints.length * 5);
+      const numX = pointsOnTrench.length;
+
+      const geo = new THREE.PlaneGeometry(1, 1, numX - 1, segmentsY);
+      const pos = geo.attributes.position;
+
+      for (let j = 0; j <= segmentsY; j++) {
+        const downDipRatio = j / segmentsY;
+        const dipDistKm = downDipRatio * widthDepthKm;
+        const depth = dipDistKm * Math.sin(dipAngleRad) + Math.pow(downDipRatio * 2.2, 2.0) * 12;
+        const horizOffset = dipDistKm * Math.cos(dipAngleRad) * 0.09;
+
+        for (let i = 0; i < numX; i++) {
+          const trenchPos = pointsOnTrench[i];
+          const slabPos = trenchPos.clone()
+            .add(subductionDir.clone().multiplyScalar(horizOffset));
+          slabPos.y = - (depth / 60.0) * 0.9;
+
+          const idx = j * numX + i;
+          pos.setXYZ(idx, slabPos.x, slabPos.y, slabPos.z);
+        }
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    // 1. Pacific Plate: Sinks West-Northwest (-X, -Z) from Japan Trench under Northeast Japan
+    const pacificSubductDir = new THREE.Vector3(-0.95, 0, -0.31).normalize();
+    const pacificSlabGeo = createSubductingSlabFromTrench(japanTrenchPoints, pacificSubductDir, 0.58, 220, 24);
+    const pacificMat = new THREE.MeshPhysicalMaterial({
+      color: 0x2563eb,
+      emissive: 0x1d4ed8,
+      emissiveIntensity: 0.3,
+      roughness: 0.35,
+      transmission: 0.15,
+      opacity: 0.78,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const pacificSlabMesh = new THREE.Mesh(pacificSlabGeo, pacificMat);
+    plateSlabsGroup.add(pacificSlabMesh);
+
+    // 2. Philippine Sea Plate: Sinks North-West (-X, -Z) under Southwest Japan along Nankai Trough
+    const phsSubductDir = new THREE.Vector3(-0.65, 0, -0.76).normalize();
+    const phsSlabGeo = createSubductingSlabFromTrench(nankaiTroughPoints, phsSubductDir, 0.42, 170, 20);
+    const phsMat = new THREE.MeshPhysicalMaterial({
+      color: 0xec4899,
+      emissive: 0xdb2777,
+      emissiveIntensity: 0.3,
+      roughness: 0.35,
+      transmission: 0.15,
+      opacity: 0.78,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const phsSlabMesh = new THREE.Mesh(phsSlabGeo, phsMat);
+    plateSlabsGroup.add(phsSlabMesh);
+
+    // 3. Amur Continental Plate Boundary Surface Overlay (Overriding block in SW Japan / Continent)
+    const amurBoundaryPoints = [
+      { lat: 46.0, lon: 125.0 },
+      { lat: 46.0, lon: 138.0 },
+      { lat: 41.0, lon: 139.5 },
+      { lat: 37.5, lon: 137.5 }, // Noto / Niigata-Kobe Tectonic Zone
+      { lat: 35.5, lon: 138.2 }, // Fossa Magna / Itoigawa-Shizuoka Tectonic Line
+      { lat: 34.5, lon: 136.0 },
+      { lat: 33.0, lon: 132.0 },
+      { lat: 30.5, lon: 128.0 },
+      { lat: 25.0, lon: 125.0 }
+    ];
+    const amurShape = new THREE.Shape();
+    amurBoundaryPoints.forEach((p, idx) => {
+      const pos = geoTo3D(p.lat, p.lon, 0);
+      if (idx === 0) amurShape.moveTo(pos.x, -pos.z);
+      else amurShape.lineTo(pos.x, -pos.z);
+    });
+    amurShape.closePath();
+
+    const amurMat = new THREE.MeshPhysicalMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 0.25,
+      roughness: 0.4,
+      transmission: 0.2,
+      opacity: 0.55,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const amurMesh = new THREE.Mesh(new THREE.ShapeGeometry(amurShape), amurMat);
+    amurMesh.rotation.x = -Math.PI / 2;
+    amurMesh.position.y = 0.08;
+    plateSlabsGroup.add(amurMesh);
+
+    // Vector Arrows (True plate motion directions)
+    const vectorsGroup = new THREE.Group();
+    worldGroup.add(vectorsGroup);
+
+    function create3DArrow(length, hexColor, dirVec, originVec) {
+      const g = new THREE.Group();
+      const sL = length - 0.9;
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, sL, 16), new THREE.MeshStandardMaterial({ color: hexColor, emissive: hexColor, emissiveIntensity: 0.6 }));
+      shaft.geometry.translate(0, sL/2, 0);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.9, 16), new THREE.MeshStandardMaterial({ color: hexColor, emissive: hexColor, emissiveIntensity: 0.6 }));
+      head.geometry.translate(0, sL + 0.45, 0);
+      g.add(shaft, head);
+      g.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dirVec.clone().normalize()));
+      g.position.copy(originVec);
+      return g;
+    }
+
+    // Pacific motion: ~8-9 cm/yr WNW (Relative to Amur)
+    vectorsGroup.add(create3DArrow(3.8, 0x60a5fa, pacificSubductDir, geoTo3D(38.0, 147.0, 0).setY(0.4)));
+    // Philippine Sea motion: ~4-5 cm/yr NW
+    vectorsGroup.add(create3DArrow(3.2, 0xf472b6, phsSubductDir, geoTo3D(30.0, 136.5, 0).setY(0.4)));
+    // Amur plate eastward minor deformation
+    vectorsGroup.add(create3DArrow(2.2, 0x34d399, new THREE.Vector3(0.9, 0, 0.4), geoTo3D(42.0, 128.0, 0).setY(0.4)));
+
+    /* ========================================================================
+       5. Earthquake Hypocenters System (Integrated with nuppeppou-style feed)
+       ======================================================================== */
+    const earthquakesGroup = new THREE.Group();
+    worldGroup.add(earthquakesGroup);
+
+    const quakeInteractiveMeshes = [];
+    let currentQuakeData = [];
+    let activeQuakeId = null;
+
+    // Use unified geoTo3D for precise alignment
+    function latLonTo3D(lat, lon, depthKm) {
+      return geoTo3D(lat, lon, depthKm);
+    }
+
+    function getDepthColor(depthKm) {
+      if (depthKm < 30) return 0xef4444;      // Shallow: Red
+      if (depthKm < 70) return 0xf97316;      // Interplate: Orange
+      if (depthKm < 150) return 0xeab308;     // Upper slab: Yellow
+      if (depthKm < 300) return 0x10b981;     // Intermediate: Green
+      return 0x06b6d4;                        // Deep mantle: Cyan
+    }
+
+    function getShindoBadgeClass(maxInt) {
+      if (!maxInt) return 'bg-slate-700 text-slate-200';
+      if (maxInt.includes('7')) return 'bg-purple-700 text-white font-black';
+      if (maxInt.includes('6強') || maxInt.includes('6弱')) return 'bg-rose-700 text-white font-black';
+      if (maxInt.includes('5強') || maxInt.includes('5弱')) return 'bg-red-600 text-white font-bold';
+      if (maxInt.includes('4')) return 'bg-amber-600 text-white font-bold';
+      if (maxInt.includes('3')) return 'bg-blue-600 text-white';
+      return 'bg-slate-700 text-slate-300';
+    }
+
+    // Historical Major Earthquakes Dataset
+    const majorEarthquakes = [
+      {
+        id: "major-2011",
+        name: "東北地方太平洋沖地震 (東日本大震災)",
+        time: "2011/03/11 14:46",
+        lat: 38.10,
+        lon: 142.86,
+        depth: 24,
+        mag: 9.0,
+        maxInt: "震度7",
+        relation: "太平洋プレート沈み込み境界 (日本海溝)",
+        desc: "太平洋プレートが日本列島の下へ沈み込む日本海溝沿いの固着域が南北約500km、東西約200kmにわたり超大規模破壊（M9.0）。最大深さ24kmの逆断層型地震です。"
+      },
+      {
+        id: "major-1923",
+        name: "関東地震 (大正関東大震災)",
+        time: "1923/09/01 11:58",
+        lat: 35.33,
+        lon: 139.58,
+        depth: 25,
+        mag: 7.9,
+        maxInt: "震度7",
+        relation: "相模トラフ (フィリピン海プレート境界)",
+        desc: "相模湾から房総沖にかけて沈み込むフィリピン海プレートとアムール・北米プレート境界のメガトラスト型巨大地震。"
+      },
+      {
+        id: "major-1946",
+        name: "昭和南海地震",
+        time: "1946/12/21 04:19",
+        lat: 32.93,
+        lon: 135.85,
+        depth: 24,
+        mag: 8.0,
+        maxInt: "震度6",
+        relation: "南海トラフ (フィリピン海プレート沈み込み)",
+        desc: "フィリピン海プレートがアムールプレート下へ沈み込む南海トラフ震源域の定期的な超大型連動地震。"
+      },
+      {
+        id: "major-1944",
+        name: "昭和東南海地震",
+        time: "1944/12/07 13:35",
+        lat: 33.57,
+        lon: 136.18,
+        depth: 20,
+        mag: 7.9,
+        maxInt: "震度6",
+        relation: "南海トラフ (熊野灘・遠州灘スラブ)",
+        desc: "南海トラフ東側の沈み込み帯スラスト破壊による海溝型巨大地震。"
+      },
+      {
+        id: "major-1995",
+        name: "兵庫県南部地震 (阪神・淡路大震災)",
+        time: "1995/01/17 05:46",
+        lat: 34.60,
+        lon: 135.04,
+        depth: 16,
+        mag: 7.3,
+        maxInt: "震度7",
+        relation: "アムールプレート内部 内陸活断層型",
+        desc: "東西圧縮応力によってアムールプレート大陸地殻上部にある野島断層・六甲断層帯が右横ずれ破壊。"
+      },
+      {
+        id: "major-2016",
+        name: "熊本地震 (本震)",
+        time: "2016/04/16 01:25",
+        lat: 32.75,
+        lon: 130.76,
+        depth: 12,
+        mag: 7.3,
+        maxInt: "震度7",
+        relation: "別府―島原地溝帯・布田川断層帯",
+        desc: "九州中央部の地溝帯（伸張応力場）に沿った布田川断層帯・日奈久断層帯の内陸直下型地震。"
+      },
+      {
+        id: "major-2024",
+        name: "令和6年能登半島地震",
+        time: "2024/01/01 16:10",
+        lat: 37.50,
+        lon: 137.24,
+        depth: 16,
+        mag: 7.6,
+        maxInt: "震度7",
+        relation: "日本海東縁部 歪み集中帯・海底逆断層",
+        desc: "日本海東縁の新生プレート収束帯に近い能登半島北岸の海底活断層が約150kmにわたり一連破壊。"
+      },
+      {
+        id: "major-2003",
+        name: "十勝沖地震",
+        time: "2003/09/26 04:50",
+        lat: 41.78,
+        lon: 144.08,
+        depth: 45,
+        mag: 8.0,
+        maxInt: "震度6弱",
+        relation: "千島海溝 太平洋プレート沈み込み境界",
+        desc: "北海道南東沖の千島海溝から北西へ沈み込む太平洋プレート境界面の固着破壊。"
+      },
+      {
+        id: "major-2015",
+        name: "小笠原諸島西方沖深発地震",
+        time: "2015/05/30 20:23",
+        lat: 27.90,
+        lon: 140.68,
+        depth: 682,
+        mag: 8.1,
+        maxInt: "震度5強",
+        relation: "太平洋プレート最深部マントルスラブ内",
+        desc: "地下682kmという地球内部の上部マントル遷移層〜下部マントル境界付近で発生した世界的にも極めて稀な超深発M8超地震。"
+      }
+    ];
+
+    // Build 3D Mesh & Visual Elements
+    function render3DEarthquakes(quakes) {
+      // Clear old meshes
+      while (earthquakesGroup.children.length > 0) {
+        const obj = earthquakesGroup.children[0];
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+          else obj.material.dispose();
+        }
+        earthquakesGroup.remove(obj);
+      }
+      quakeInteractiveMeshes.length = 0;
+
+      quakes.forEach(q => {
+        const pos = latLonTo3D(q.lat, q.lon, q.depth);
+        const surfacePos = new THREE.Vector3(pos.x, 0.05, pos.z);
+        const colorHex = getDepthColor(q.depth);
+        const radius = Math.max(0.18, (q.mag - 4.2) * 0.16);
+
+        // 1. Hypocenter Sphere
+        const sphereGeo = new THREE.SphereGeometry(radius, 24, 24);
+        const sphereMat = new THREE.MeshStandardMaterial({
+          color: colorHex,
+          emissive: colorHex,
+          emissiveIntensity: 0.75,
+          roughness: 0.25,
+          metalness: 0.3
+        });
+        const sphereMesh = new THREE.Mesh(sphereGeo, sphereMat);
+        sphereMesh.position.copy(pos);
+        sphereMesh.userData = q;
+        earthquakesGroup.add(sphereMesh);
+        quakeInteractiveMeshes.push(sphereMesh);
+
+        // 2. Vertical Depth Drop Line
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([surfacePos, pos]);
+        const lineMat = new THREE.LineBasicMaterial({
+          color: colorHex,
+          transparent: true,
+          opacity: 0.45
+        });
+        earthquakesGroup.add(new THREE.Line(lineGeo, lineMat));
+
+        // 3. Epicenter Surface Ripple Ring
+        const ringG = new THREE.RingGeometry(radius * 0.9, radius * 1.35, 24);
+        const ringM = new THREE.MeshBasicMaterial({
+          color: colorHex,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.65
+        });
+        const ring = new THREE.Mesh(ringG, ringM);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.copy(surfacePos);
+        earthquakesGroup.add(ring);
+      });
+    }
+
+    // Render Side List Cards (nuppeppou earthquake UI style)
+    const quakeListContainer = document.getElementById('quake-list-container');
+
+    function renderQuakeList(quakes) {
+      quakeListContainer.innerHTML = '';
+      if (quakes.length === 0) {
+        quakeListContainer.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">該当する地震データがありません</div>';
+        return;
+      }
+
+      quakes.forEach(q => {
+        const card = document.createElement('div');
+        card.className = `quake-card p-2.5 rounded-xl bg-slate-900/60 border border-white/5 cursor-pointer flex items-center justify-between gap-2.5 ${activeQuakeId === q.id ? 'active' : ''}`;
+        card.dataset.id = q.id;
+
+        const maxInt = q.maxInt || (q.mag >= 7 ? '震度6弱' : q.mag >= 6 ? '震度5強' : '震度4');
+        const badgeClass = getShindoBadgeClass(maxInt);
+
+        card.innerHTML = `
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="px-2 py-1 rounded-md text-[10px] font-black shrink-0 ${badgeClass} shadow-sm">${maxInt}</span>
+            <div class="min-w-0">
+              <div class="font-bold text-xs text-slate-100 truncate">${q.name}</div>
+              <div class="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                <span>${q.time.split(' ')[0]}</span>
+                <span>${q.time.split(' ')[1] || ''}</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="text-xs font-mono font-black text-amber-300">M${Number(q.mag).toFixed(1)}</div>
+            <div class="text-[10px] font-mono text-cyan-300">${q.depth}km</div>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          selectQuake(q);
+        });
+
+        quakeListContainer.appendChild(card);
+      });
+    }
+
+    // Show Details Modal & Focus Camera in 3D
+    const modal = document.getElementById('quake-detail-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const modalTime = document.getElementById('modal-time');
+    const modalMag = document.getElementById('modal-mag');
+    const modalDepth = document.getElementById('modal-depth');
+    const modalDesc = document.getElementById('modal-desc');
+    const modalShindo = document.getElementById('modal-shindo-badge');
+
+    function selectQuake(q) {
+      activeQuakeId = q.id;
+
+      // Update card active classes
+      document.querySelectorAll('.quake-card').forEach(el => {
+        if (el.dataset.id === q.id) el.classList.add('active');
+        else el.classList.remove('active');
+      });
+
+      // Update Modal
+      modalTitle.innerText = q.name;
+      modalTime.innerText = `発生: ${q.time}`;
+      modalMag.innerText = `M${Number(q.mag).toFixed(1)}`;
+      modalDepth.innerText = `${q.depth} km`;
+      modalDesc.innerText = q.desc || `${q.relation}。深さ${q.depth}kmにて発生。`;
+
+      const maxInt = q.maxInt || (q.mag >= 7 ? '震度6弱' : '震度4');
+      modalShindo.innerText = maxInt;
+      modalShindo.className = `px-2 py-0.5 rounded font-black text-xs ${getShindoBadgeClass(maxInt)} shadow`;
+
+      modal.classList.remove('opacity-0', 'translate-y-8', 'pointer-events-none');
+      modal.classList.add('opacity-100', 'translate-y-0', 'pointer-events-auto');
+
+      // Camera Fly to Epicenter in 3D
+      const targetPos3D = latLonTo3D(q.lat, q.lon, q.depth);
+      targetCameraPos = new THREE.Vector3(targetPos3D.x + 6, targetPos3D.y + 7, targetPos3D.z + 8);
+      targetLookAt = targetPos3D.clone();
+
+      // Temporarily stop auto rotation
+      isAutoRotating = false;
+      document.getElementById('rotate-text').innerText = '自転: OFF';
+    }
+
+    document.getElementById('btn-close-modal').addEventListener('click', () => {
+      modal.classList.add('opacity-0', 'translate-y-8', 'pointer-events-none');
+      modal.classList.remove('opacity-100', 'translate-y-0', 'pointer-events-auto');
+      activeQuakeId = null;
+      document.querySelectorAll('.quake-card').forEach(el => el.classList.remove('active'));
+    });
+
+    // P2PQuake Real-Time API Fetcher (nuppeppou-like source)
+    let currentFeedMode = 'major'; // 'recent' or 'major'
+    let rawLiveQuakes = [];
+
+    async function fetchLiveQuakes() {
+      const container = document.getElementById('quake-list-container');
+      container.innerHTML = '<div class="text-xs text-cyan-400 text-center py-6 animate-pulse">気象庁 地震データを取得中...</div>';
+
+      try {
+        const res = await fetch('https://api.p2pquake.net/v2/history?codes=551&limit=30');
+        const data = await res.json();
+
+        const formatted = [];
+        data.forEach((item, idx) => {
+          if (item.earthquake && item.earthquake.hypocenter) {
+            const h = item.earthquake.hypocenter;
+            if (h.latitude && h.longitude && h.depth !== undefined) {
+              const depthKm = h.depth >= 0 ? h.depth : 10;
+              const mag = h.magnitude >= 0 ? h.magnitude : 3.8;
+              const maxScale = item.earthquake.maxScale;
+              
+              // Map scale number to Japanese Shindo text
+              const scaleMap = {
+                10: '震度1', 20: '震度2', 30: '震度3', 40: '震度4',
+                45: '震度5弱', 50: '震度5強', 55: '震度6弱', 60: '震度6強', 70: '震度7'
+              };
+              const maxIntText = scaleMap[maxScale] || (mag >= 5 ? '震度4' : '震度2');
+
+              formatted.push({
+                id: `live-${item.id || idx}`,
+                name: h.name || '日本近海',
+                time: item.earthquake.time || item.time,
+                lat: h.latitude,
+                lon: h.longitude,
+                depth: depthKm,
+                mag: mag,
+                maxInt: maxIntText,
+                relation: depthKm > 70 ? '沈み込んだスラブ内部地震' : '地殻浅部・プレート境界',
+                desc: `${h.name}にて観測。最大${maxIntText}、深さ${depthKm}km。周辺のプレートテクトニクス構造と地下深度を3Dで確認できます。`
+              });
+            }
+          }
+        });
+
+        rawLiveQuakes = formatted;
+        applyFilter('all');
+      } catch (err) {
+        console.error('Failed to fetch P2PQuake:', err);
+        container.innerHTML = '<div class="text-xs text-rose-400 text-center py-6">リアルタイム取得失敗。歴史地震に切り替えます。</div>';
+        setTimeout(() => switchTab('major'), 1500);
+      }
+    }
+
+    function switchTab(mode) {
+      currentFeedMode = mode;
+      const tabRecent = document.getElementById('tab-recent');
+      const tabMajor = document.getElementById('tab-major');
+
+      if (mode === 'recent') {
+        tabRecent.className = "py-1.5 px-2 rounded-lg bg-cyan-600/30 text-cyan-200 border border-cyan-500/40 font-semibold text-center transition";
+        tabMajor.className = "py-1.5 px-2 rounded-lg text-slate-400 hover:text-white text-center transition";
+        fetchLiveQuakes();
+      } else {
+        tabMajor.className = "py-1.5 px-2 rounded-lg bg-cyan-600/30 text-cyan-200 border border-cyan-500/40 font-semibold text-center transition";
+        tabRecent.className = "py-1.5 px-2 rounded-lg text-slate-400 hover:text-white text-center transition";
+        applyFilter('all');
+      }
+    }
+
+    document.getElementById('tab-recent').addEventListener('click', () => switchTab('recent'));
+    document.getElementById('tab-major').addEventListener('click', () => switchTab('major'));
+    document.getElementById('btn-refresh-quakes').addEventListener('click', () => {
+      if (currentFeedMode === 'recent') fetchLiveQuakes();
+      else applyFilter('all');
+    });
+
+    // Filters
+    let currentFilter = 'all';
+    function applyFilter(filterType) {
+      currentFilter = filterType;
+      const base = (currentFeedMode === 'recent') ? rawLiveQuakes : majorEarthquakes;
+      let filtered = [...base];
+
+      if (filterType === 'm5') {
+        filtered = filtered.filter(q => q.mag >= 5.0);
+      } else if (filterType === 'deep') {
+        filtered = filtered.filter(q => q.depth >= 70);
+      }
+
+      currentQuakeData = filtered;
+      renderQuakeList(filtered);
+      render3DEarthquakes(filtered);
+
+      document.querySelectorAll('.btn-filter').forEach(btn => {
+        if (btn.dataset.filter === filterType) {
+          btn.className = "btn-filter px-2 py-0.5 rounded-full bg-white/20 text-white font-medium";
+        } else {
+          btn.className = "btn-filter px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 hover:text-white";
+        }
+      });
+    }
+
+    document.querySelectorAll('.btn-filter').forEach(btn => {
+      btn.addEventListener('click', () => applyFilter(btn.dataset.filter));
+    });
+
+    // Initial load with major historic earthquakes
+    applyFilter('all');
+
+    /* ========================================================================
+       6. Raycasting & Tooltips for 3D Elements
+       ======================================================================== */
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const tooltip = document.getElementById('quake-tooltip');
+    const tooltipTitle = document.getElementById('tooltip-title');
+    const tooltipMag = document.getElementById('tooltip-mag');
+    const tooltipDepth = document.getElementById('tooltip-depth');
+    const tooltipShindo = document.getElementById('tooltip-shindo');
+
+    window.addEventListener('mousemove', (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(quakeInteractiveMeshes);
+
+      if (intersects.length > 0) {
+        const q = intersects[0].object.userData;
+        tooltipTitle.innerText = q.name;
+        tooltipMag.innerText = `M ${Number(q.mag).toFixed(1)}`;
+        tooltipDepth.innerText = `${q.depth} km`;
+        tooltipShindo.innerText = q.maxInt || '-';
+
+        tooltip.style.left = `${Math.min(window.innerWidth - 220, e.clientX + 14)}px`;
+        tooltip.style.top = `${Math.min(window.innerHeight - 120, e.clientY + 14)}px`;
+        tooltip.classList.remove('hidden');
+        document.body.style.cursor = 'pointer';
+      } else {
+        tooltip.classList.add('hidden');
+        document.body.style.cursor = 'default';
+      }
+    });
+
+    window.addEventListener('click', (e) => {
+      // Ignore if clicking on UI panels
+      if (e.target.closest('#quake-sidebar') || e.target.closest('#quake-detail-modal') || e.target.closest('header')) {
+        return;
+      }
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(quakeInteractiveMeshes);
+      if (intersects.length > 0) {
+        selectQuake(intersects[0].object.userData);
+      }
+    });
+
+    /* ========================================================================
+       7. UI Toggles & Animations
+       ======================================================================== */
+    const sidebar = document.getElementById('quake-sidebar');
+    const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+    let sidebarOpen = true;
+
+    btnToggleSidebar.addEventListener('click', () => {
+      sidebarOpen = !sidebarOpen;
+      if (sidebarOpen) {
+        sidebar.classList.remove('-translate-x-full', 'opacity-0', 'pointer-events-none');
+      } else {
+        sidebar.classList.add('-translate-x-full', 'opacity-0', 'pointer-events-none');
+      }
+    });
+
+    let isAutoRotating = true;
+    const btnToggleRotate = document.getElementById('btn-toggle-rotate');
+    const rotateText = document.getElementById('rotate-text');
+
+    btnToggleRotate.addEventListener('click', () => {
+      isAutoRotating = !isAutoRotating;
+      rotateText.innerText = isAutoRotating ? '自転: ON' : '自転: OFF';
+    });
+
+    document.getElementById('chk-slab').addEventListener('change', (e) => plateSlabsGroup.visible = e.target.checked);
+    document.getElementById('chk-arrows').addEventListener('change', (e) => vectorsGroup.visible = e.target.checked);
+
+    // Camera presets
+    let targetCameraPos = null;
+    let targetLookAt = new THREE.Vector3(0, 0, 0);
+
+    const presets = {
+      front: { pos: new THREE.Vector3(0, 24, 20), target: new THREE.Vector3(0, 0, 0) },
+      cross: { pos: new THREE.Vector3(26, 6, 4), target: new THREE.Vector3(0, -1.2, 0) },
+      top: { pos: new THREE.Vector3(0, 36, 0.1), target: new THREE.Vector3(0, 0, 0) }
+    };
+
+    document.querySelectorAll('.btn-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = presets[btn.dataset.view];
+        if (view) {
+          targetCameraPos = view.pos.clone();
+          targetLookAt = view.target.clone();
+          isAutoRotating = false;
+          rotateText.innerText = '自転: OFF';
+        }
+      });
+    });
+
+    // Labels aligned precisely over their respective plates
+    const labelData = [
+      { id: 'lbl-pac', text: '太平洋プレート', sub: '西北西へ沈み込み (日本海溝・千島海溝)', pos: geoTo3D(39.0, 146.5, 0).setY(1.2), colorClass: 'border-blue-500 text-blue-300' },
+      { id: 'lbl-phs', text: 'フィリピン海プレート', sub: '北西へ沈み込み (南海トラフ・相模トラフ)', pos: geoTo3D(30.5, 136.0, 0).setY(1.2), colorClass: 'border-pink-500 text-pink-300' },
+      { id: 'lbl-amur', text: 'アムールプレート', sub: '大陸地殻・西南日本上載プレート', pos: geoTo3D(41.0, 129.0, 0).setY(1.2), colorClass: 'border-emerald-500 text-emerald-300' }
+    ];
+
+    labelData.forEach(item => {
+      const el = document.createElement('div');
+      el.id = item.id;
+      el.className = `plate-label glass-panel px-2 py-1 rounded-lg border-l-4 ${item.colorClass} shadow-lg`;
+      el.innerHTML = `
+        <div class="font-bold text-[11px] leading-tight flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+          ${item.text}
+        </div>
+        <div class="text-[9px] text-slate-400 mt-0.5">${item.sub}</div>
+      `;
+      labelsContainer.appendChild(el);
+      item.domElement = el;
+    });
+
+    function updateLabelsPosition() {
+      const tempV = new THREE.Vector3();
+      const widthHalf = window.innerWidth / 2;
+      const heightHalf = window.innerHeight / 2;
+
+      labelData.forEach(item => {
+        tempV.copy(item.pos);
+        tempV.applyMatrix4(worldGroup.matrixWorld);
+        const isBehind = tempV.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) <= 0;
+        tempV.project(camera);
+
+        if (isBehind || Math.abs(tempV.x) > 1.1 || Math.abs(tempV.y) > 1.1) {
+          item.domElement.style.opacity = '0';
+        } else {
+          item.domElement.style.opacity = '1';
+          item.domElement.style.left = `${(tempV.x * widthHalf) + widthHalf}px`;
+          item.domElement.style.top = `${-(tempV.y * heightHalf) + heightHalf}px`;
+        }
+      });
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    /* ========================================================================
+       8. Animation Loop
+       ======================================================================== */
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (targetCameraPos) {
+        camera.position.lerp(targetCameraPos, 0.05);
+        controls.target.lerp(targetLookAt, 0.05);
+        if (camera.position.distanceTo(targetCameraPos) < 0.1) {
+          targetCameraPos = null;
+        }
+      }
+
+      if (isAutoRotating) {
+        worldGroup.rotation.y += 0.0035;
+      }
+
+      const time = clock.getElapsedTime();
+      vectorsGroup.children.forEach((arrow, idx) => {
+        arrow.position.y = 0.5 + Math.sin(time * 2.5 + idx) * 0.1;
+      });
+
+      controls.update();
+      updateLabelsPosition();
+      renderer.render(scene, camera);
+    }
+
+    window.onload = function () {
+      animate();
+    };
+  </script>
 </body>
 </html>
