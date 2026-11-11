@@ -46,10 +46,15 @@
   <!-- 3D WebGL Canvas Container -->
   <div id="canvas-container"></div>
 
+  <!-- Left Sidebar Toggle Button (Always visible on top of canvas/sidebar) -->
+  <button id="btn-toggle-sidebar" class="fixed top-4 left-4 z-30 flex items-center justify-center w-10 h-10 rounded-xl glass-panel text-slate-200 hover:text-cyan-300 hover:border-cyan-500/50 shadow-2xl transition-all duration-300 focus:outline-none" title="地震一覧の表示/非表示 (Hキー)">
+    <span id="sidebar-toggle-icon" class="text-base font-bold transition-transform duration-300">◀</span>
+  </button>
+
   <!-- Left Sidebar (Quake Feed & Controls) -->
-  <aside id="sidebar" class="relative z-10 w-80 md:w-96 h-full flex flex-col glass-panel border-r border-slate-700/60 shadow-2xl transition-all duration-300">
+  <aside id="sidebar" class="relative z-10 w-80 md:w-96 h-full flex flex-col glass-panel border-r border-slate-700/60 shadow-2xl transition-transform duration-300 ease-in-out">
     <!-- Header -->
-    <header class="p-4 border-b border-slate-700/60 bg-slate-900/60">
+    <header class="p-4 pl-16 border-b border-slate-700/60 bg-slate-900/60">
       <div class="flex items-center justify-between mb-1">
         <h1 class="text-base font-bold text-white flex items-center gap-2">
           <span class="inline-block w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
@@ -202,12 +207,55 @@
     const CENTER_LON = 137.5;
     const SCALE_DEG = 1.35; // 1度あたりの3D距離
     
-    // 【重要】深さの大幅な誇張係数: 50kmで約-3.2ユニット沈下し、立体的な深さが一目でわかる
+    // 【重要】深さの誇張係数: 50kmで約-3.2ユニット、100kmで-6.5ユニット
+    function depthKmToY(depthKm) {
+      return - (depthKm / 15.4);
+    }
+
+    // 地震調査研究推進本部・Slab2モデル準拠のプレート上面深度計算
+    // 太平洋プレートおよびフィリピン海プレートのスラブ幾何学を共通定義
+    function getSlabData(lat, lon) {
+      // 1. 太平洋プレート (千島・日本海溝・伊豆小笠原から西北西へ沈み込み)
+      // 日本海溝線の概略ライン: 経度 lonTrench
+      let trenchLonPac = 143.5 - (lat - 38.0) * 0.45;
+      if (lat < 35.0) {
+        // 伊豆・小笠原海溝沿い
+        trenchLonPac = 141.0 + (35.0 - lat) * 0.1;
+      }
+      const distFromPacTrench = trenchLonPac - lon; // 海溝より西（正）なら沈み込み域
+
+      if (distFromPacTrench >= 0 && (lon >= 133.0 || lat >= 35.0)) {
+        // 海溝近傍から大陸側へ進むにつれて傾斜角が増加 (スラブ上面深度 km)
+        let slabTopKm = 15.0 + Math.pow(distFromPacTrench * 1.05, 1.48) * 22.0;
+        if (lat < 35.0 && lon < 140.0) slabTopKm += 25.0; // フィリピン海プレート下への深い沈み込み
+        return {
+          plate: 'PAC',
+          topKm: Math.min(slabTopKm, 650),
+          thicknessKm: 35.0 // 太平洋プレートの厚み (~35km)
+        };
+      }
+
+      // 2. フィリピン海プレート (南海トラフ・琉球海溝から北西へ沈み込み)
+      // 南海トラフ線の概略: latTrench
+      const trenchLatPhs = 33.5 - (lon - 136.0) * 0.55;
+      const distFromPhsTrough = lat - trenchLatPhs; // トラフより北西（正）なら沈み込み域
+
+      if (distFromPhsTrough >= 0 && lat <= 36.5 && lon <= 139.0 && lon >= 129.0) {
+        let slabTopKm = 12.0 + Math.pow(distFromPhsTrough * 1.15, 1.42) * 28.0;
+        return {
+          plate: 'PHS',
+          topKm: Math.min(slabTopKm, 160),
+          thicknessKm: 25.0 // フィリピン海プレートの厚み (~25km)
+        };
+      }
+
+      return null;
+    }
+
     function geoTo3D(lat, lon, depthKm = 0) {
       const x = (lon - CENTER_LON) * (SCALE_DEG * 0.85); // 緯度による東西収縮補正
       const z = -(lat - CENTER_LAT) * SCALE_DEG;         // 北が-Z、南が+Z
-      // 50kmで -3.25, 100kmで -6.5, 600kmで -22.0
-      const y = - (depthKm / 15.4);
+      const y = depthKmToY(depthKm);
       return new THREE.Vector3(x, y, z);
     }
 
@@ -367,60 +415,115 @@
     cylMesh.position.y = -blockHeight / 2;
     worldGroup.add(cylMesh);
 
-    // --- 4. 3D Subducting Slabs (Pacific & Philippine Sea Plates) ---
-    // Pacific Plate Slab (Steeply subducting from Japan Trench towards NW under Tohoku)
+    // --- 4. 3D Subducting Slabs (美しく自然な傾斜スラブの再構築) ---
+    // 太平洋プレートのスラブ (日本海溝から西へ滑らかに沈み込むシンプルな曲面)
     function createPacificSlab() {
-      const slabGeo = new THREE.PlaneGeometry(16, 24, 20, 20);
-      const pos = slabGeo.attributes.position;
-      // 曲げ加工: 東（日本海溝）から西へ急角度で深部（〜200km以上）に沈み込ませる
-      for (let i = 0; i < pos.count; i++) {
-        const u = (pos.getX(i) + 8) / 16; // 0 (西) -> 1 (東)
-        const v = (pos.getY(i) + 12) / 24;
-        // 東側(u=1)は地表近く、西へ進むほど急激に下（-Y）に落ちる
-        const depth = - (Math.pow(1 - u, 1.4)) * 14.0;
-        pos.setZ(i, depth);
-      }
-      slabGeo.computeVertexNormals();
+      const slabGroup = new THREE.Group();
+      const rows = 24;
+      const cols = 20;
+      const geo = new THREE.PlaneGeometry(1, 1, cols - 1, rows - 1);
+      const pos = geo.attributes.position;
 
-      const slabMat = new THREE.MeshStandardMaterial({
-        color: 0x0284c7, // Sky Blue
+      // 海溝の弧状カーブを基準にした規則的なグリッド
+      let idx = 0;
+      for (let j = 0; j < rows; j++) {
+        const v = j / (rows - 1); // 南から北 (28°N〜45°N)
+        const lat = 29.0 + v * 16.0;
+
+        // 海溝の経度ライン
+        let trenchLon = 143.2 - (lat - 38.0) * 0.4;
+        if (lat < 35.0) trenchLon = 141.2 + (35.0 - lat) * 0.12;
+
+        for (let i = 0; i < cols; i++) {
+          const u = i / (cols - 1); // 0: 海溝(東) -> 1: 大陸地下深部(西)
+          const lon = trenchLon - u * 9.5; 
+
+          const vSurf = geoTo3D(lat, lon, 0);
+          // 海溝(u=0)近傍は浅く、西へ潜るにつれて傾斜を増しながら深さ200km超へ
+          const depthKm = 12.0 + Math.pow(u, 1.35) * 220.0;
+          const y = depthKmToY(depthKm);
+
+          pos.setXYZ(idx, vSurf.x, y, vSurf.z);
+          idx++;
+        }
+      }
+      geo.computeVertexNormals();
+
+      // 半透明ソリッド面
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        roughness: 0.3,
         transparent: true,
-        opacity: 0.35,
-        wireframe: true,
+        opacity: 0.42,
         side: THREE.DoubleSide
       });
-      const slab = new THREE.Mesh(slabGeo, slabMat);
-      slab.rotation.x = -Math.PI / 2;
-      slab.rotation.z = -0.22;
-      slab.position.set(5.5, -0.2, -1.0);
-      return slab;
+      const mesh = new THREE.Mesh(geo, mat);
+      slabGroup.add(mesh);
+
+      // 構造グリッドライン
+      const wireMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.25
+      });
+      const wireMesh = new THREE.Mesh(geo, wireMat);
+      slabGroup.add(wireMesh);
+
+      return slabGroup;
     }
     worldGroup.add(createPacificSlab());
 
-    // Philippine Sea Plate Slab (Subducting from Nankai Trough towards NW under SW Japan)
+    // フィリピン海プレートのスラブ (南海トラフ・琉球海溝から北西へ滑らかに沈み込む曲面)
     function createPhilippineSlab() {
-      const slabGeo = new THREE.PlaneGeometry(14, 16, 16, 16);
-      const pos = slabGeo.attributes.position;
-      for (let i = 0; i < pos.count; i++) {
-        const u = (pos.getX(i) + 7) / 14;
-        const v = (pos.getY(i) + 8) / 16;
-        const depth = - (Math.pow(1 - v, 1.3)) * 8.5;
-        pos.setZ(i, depth);
-      }
-      slabGeo.computeVertexNormals();
+      const slabGroup = new THREE.Group();
+      const rows = 18;
+      const cols = 16;
+      const geo = new THREE.PlaneGeometry(1, 1, cols - 1, rows - 1);
+      const pos = geo.attributes.position;
 
-      const slabMat = new THREE.MeshStandardMaterial({
-        color: 0xf43f5e, // Rose Pink
+      let idx = 0;
+      for (let j = 0; j < rows; j++) {
+        const v = j / (rows - 1); // 南西から北東 (九州南〜伊豆)
+        const latTrench = 30.2 + v * 4.8;
+        const lonTrench = 131.0 + v * 7.5;
+
+        for (let i = 0; i < cols; i++) {
+          const u = i / (cols - 1); // 0: 南海トラフ -> 1: 西日本地下 (北西方向へ沈降)
+          const lat = latTrench + u * 3.6;
+          const lon = lonTrench - u * 2.8;
+
+          const vSurf = geoTo3D(lat, lon, 0);
+          // 南海トラフ(u=0)から四国・近畿・中国地方下へ深さ100km超まで沈み込み
+          const depthKm = 10.0 + Math.pow(u, 1.25) * 115.0;
+          const y = Math.min(depthKmToY(depthKm), -0.15); // 地表から確実に下
+
+          pos.setXYZ(idx, vSurf.x, y, vSurf.z);
+          idx++;
+        }
+      }
+      geo.computeVertexNormals();
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xf43f5e,
+        roughness: 0.35,
         transparent: true,
-        opacity: 0.32,
-        wireframe: true,
+        opacity: 0.4,
         side: THREE.DoubleSide
       });
-      const slab = new THREE.Mesh(slabGeo, slabMat);
-      slab.rotation.x = -Math.PI / 2 + 0.35;
-      slab.rotation.z = 0.55;
-      slab.position.set(-3.2, -0.2, 5.0);
-      return slab;
+      const mesh = new THREE.Mesh(geo, mat);
+      slabGroup.add(mesh);
+
+      const wireMat = new THREE.MeshBasicMaterial({
+        color: 0xfb7185,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.25
+      });
+      const wireMesh = new THREE.Mesh(geo, wireMat);
+      slabGroup.add(wireMesh);
+
+      return slabGroup;
     }
     worldGroup.add(createPhilippineSlab());
 
@@ -472,11 +575,62 @@
     const quakesGroup = new THREE.Group();
     worldGroup.add(quakesGroup);
 
-    // Marker Store & Raycasting
+    // Marker Store & Raycasting & Highlight Pulse
     let currentQuakesData = [];
     const quakeInteractiveMeshes = [];
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+
+    // 選択中の地震を赤く淡く点滅・パルスさせるハイライト用オブジェクト
+    let activeHighlightMesh = null;
+    let activeHighlightRing = null;
+
+    function createHighlightEffects(posUnder, posSurface) {
+      // 既存のハイライトをクリア
+      clearHighlight();
+
+      // 1. 地下震源球体の周囲に展開する淡い赤色パルス球体
+      const pulseGeo = new THREE.SphereGeometry(1.2, 24, 24);
+      const pulseMat = new THREE.MeshBasicMaterial({
+        color: 0xff2222,
+        transparent: true,
+        opacity: 0.5,
+        wireframe: false,
+        side: THREE.BackSide
+      });
+      activeHighlightMesh = new THREE.Mesh(pulseGeo, pulseMat);
+      activeHighlightMesh.position.copy(posUnder);
+      quakesGroup.add(activeHighlightMesh);
+
+      // 2. 地表（震央）で広がる淡い赤色波紋リング
+      const ringGeo = new THREE.RingGeometry(0.3, 0.5, 32);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xff3333,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+      });
+      activeHighlightRing = new THREE.Mesh(ringGeo, ringMat);
+      activeHighlightRing.rotation.x = -Math.PI / 2;
+      activeHighlightRing.position.copy(posSurface);
+      activeHighlightRing.position.y += 0.05;
+      quakesGroup.add(activeHighlightRing);
+    }
+
+    function clearHighlight() {
+      if (activeHighlightMesh) {
+        quakesGroup.remove(activeHighlightMesh);
+        activeHighlightMesh.geometry.dispose();
+        activeHighlightMesh.material.dispose();
+        activeHighlightMesh = null;
+      }
+      if (activeHighlightRing) {
+        quakesGroup.remove(activeHighlightRing);
+        activeHighlightRing.geometry.dispose();
+        activeHighlightRing.material.dispose();
+        activeHighlightRing = null;
+      }
+    }
 
     // Color based on Depth
     function getDepthColor(depthKm) {
@@ -487,6 +641,7 @@
     }
 
     function renderQuakesTo3D(quakes) {
+      clearHighlight();
       // Clear previous
       while (quakesGroup.children.length > 0) {
         quakesGroup.remove(quakesGroup.children[0]);
@@ -494,14 +649,14 @@
       quakeInteractiveMeshes.length = 0;
 
       quakes.forEach((q, index) => {
-        const depth = q.depth || 10;
+        const rawDepth = (q.depth != null && q.depth >= 0) ? q.depth : 10;
         const mag = Math.max(q.magnitude || 4.0, 3.0);
         
-        // 3D座標取得 (Yが深さに応じてガッツリ下に潜る)
-        const posUnder = geoTo3D(q.lat, q.lon, depth);
+        // 無理な補正を排し、観測深度をそのまま素直に誇張スケールで地下座標へ変換
+        const posUnder = geoTo3D(q.lat, q.lon, rawDepth);
         const posSurface = geoTo3D(q.lat, q.lon, 0);
 
-        const colorHex = getDepthColor(depth);
+        const colorHex = getDepthColor(rawDepth);
 
         // A. 地表から地下震源への垂直深度ロッド (ピン)
         const lineGeo = new THREE.BufferGeometry().setFromPoints([posSurface, posUnder]);
@@ -519,32 +674,37 @@
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.rotation.x = -Math.PI / 2;
         ring.position.copy(posSurface);
-        ring.position.y += 0.03; // 地表の少し上
+        ring.position.y += 0.03;
         quakesGroup.add(ring);
 
-        // C. 【重要】深さの位置に配置された地下震源球体
-        const radius = Math.min(0.2 + (mag - 3.0) * 0.12, 0.95);
+        // C. 地下震源球体
+        const radius = Math.min(0.22 + (mag - 3.0) * 0.13, 1.0);
         const sphereGeo = new THREE.SphereGeometry(radius, 20, 20);
         const sphereMat = new THREE.MeshStandardMaterial({
           color: colorHex,
           emissive: colorHex,
-          emissiveIntensity: 0.65,
-          roughness: 0.2
+          emissiveIntensity: 0.7,
+          roughness: 0.25
         });
         const sphere = new THREE.Mesh(sphereGeo, sphereMat);
         sphere.position.copy(posUnder);
         
-        // 50km以上の場合は深さを強調する水平深度ディスクを付与
-        if (depth >= 40) {
-          const depthDiscGeo = new THREE.RingGeometry(radius * 1.1, radius * 1.6, 20);
-          const depthDiscMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        // 深さ40km以上の場合は水平ターゲットリングを表示
+        if (rawDepth >= 40) {
+          const depthDiscGeo = new THREE.RingGeometry(radius * 1.15, radius * 1.7, 24);
+          const depthDiscMat = new THREE.MeshBasicMaterial({
+            color: colorHex,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.6
+          });
           const depthDisc = new THREE.Mesh(depthDiscGeo, depthDiscMat);
           depthDisc.rotation.x = -Math.PI / 2;
           depthDisc.position.copy(posUnder);
           quakesGroup.add(depthDisc);
         }
 
-        sphere.userData = { quake: q, index: index };
+        sphere.userData = { quake: q, index: index, posUnder: posUnder, posSurface: posSurface };
         quakesGroup.add(sphere);
         quakeInteractiveMeshes.push(sphere);
       });
@@ -557,42 +717,49 @@
         time: '2011/03/11 14:46:18',
         place: '三陸沖 (東北地方太平洋沖地震)',
         lat: 38.10, lon: 142.86, depth: 24, magnitude: 9.0, maxScale: '7',
-        tectonics: '太平洋プレートが北米（オホーツク）プレートの下へ沈み込む日本海溝の超巨大プレート境界面破壊。'
+        tectonics: '【プレート境界型】太平洋プレートが北日本地殻の下へ沈み込む日本海溝のアスペリティ超巨大破壊。'
+      },
+      {
+        id: 'miyagi_slab2021',
+        time: '2021/03/20 18:09:45',
+        place: '宮城県沖 (スラブ内地震)',
+        lat: 38.47, lon: 141.63, depth: 59, magnitude: 6.9, maxScale: '5強',
+        tectonics: '【スラブ内地震 (Intraslab)】沈み込んだ太平洋プレートの海洋リソスフェア内部（二重深発地震面上面）で発生した正断層/横ずれ破壊。'
       },
       {
         id: 'noto2024',
         time: '2024/01/01 16:10:09',
         place: '石川県能登半島地方',
         lat: 37.50, lon: 137.24, depth: 16, magnitude: 7.6, maxScale: '7',
-        tectonics: 'アムールプレート東縁部・能登半島北岸の沿岸〜海底活断層群の連動による極浅発の内陸地殻内地震。'
+        tectonics: '【内陸地殻内地震】アムールプレート東縁部・能登半島北岸沿岸〜海底活断層群の連動による極浅発地震。'
       },
       {
         id: 'kumamoto2016',
         time: '2016/04/16 01:25:05',
         place: '熊本県熊本地方 (本震)',
         lat: 32.75, lon: 130.76, depth: 12, magnitude: 7.3, maxScale: '7',
-        tectonics: '布田川断層帯・日奈久断層帯が横ずれ破壊した内陸直下型地震（アムールプレート上載地殻内）。'
+        tectonics: '【内陸直下型】布田川・日奈久断層帯が横ずれ破壊した上載地殻（アムールプレート内部）浅発地震。'
       },
       {
         id: 'kanto1923',
         time: '1923/09/01 11:58:32',
         place: '神奈川県相模湾 (大正関東地震)',
         lat: 35.33, lon: 139.25, depth: 23, magnitude: 7.9, maxScale: '7',
-        tectonics: 'フィリピン海プレートが関東直下へ潜り込む相模トラフ沿いの海溝型超大地震。'
+        tectonics: '【プレート境界型】相模トラフ沿い。フィリピン海プレートが本州の下へ潜り込む境界面の巨大破壊。'
       },
       {
         id: 'ogasawara2015',
         time: '2015/05/30 20:23:02',
-        place: '小笠原諸島西方沖 (超深発地震)',
+        place: '小笠原諸島西方沖 (超深発スラブ地震)',
         lat: 27.90, lon: 140.49, depth: 682, magnitude: 8.1, maxScale: '5強',
-        tectonics: '沈み込んだ太平洋プレートのスラブがマントル遷移層（深さ680km）に滞留・変態破壊した超深発地震。'
+        tectonics: '【深発スラブ地震】沈み込んだ太平洋プレートがマントル遷移層（深さ680km）に滞留・変態相転移して起きた超深発地震。'
       },
       {
         id: 'nankai_1946',
         time: '1946/12/21 04:19:04',
         place: '潮岬沖 (昭和南海地震)',
         lat: 32.93, lon: 135.85, depth: 30, magnitude: 8.0, maxScale: '6',
-        tectonics: '南海トラフ沿いでフィリピン海プレートが沈み込む巨大海溝型アスペリティ破壊。'
+        tectonics: '【プレート境界型】南海トラフ沿いでフィリピン海プレートが西日本の下に潜り込む境界面巨大地震。'
       }
     ];
 
@@ -652,16 +819,21 @@
     }
 
     function determineTectonics(lat, lon, depth) {
-      if (depth >= 150) {
-        return 'マントル深くへ沈み込んだ太平洋プレート内部で発生した深発スラブ地震です。';
+      const slab = getSlabData(lat, lon);
+      if (slab) {
+        if (depth >= slab.topKm - 10) {
+          const pName = slab.plate === 'PAC' ? '太平洋プレート' : 'フィリピン海プレート';
+          return `【スラブ内地震】沈み込んだ${pName}のリソスフェア内部（深さ${depth}km）で発生した地震です。`;
+        }
+        if (Math.abs(depth - slab.topKm) <= 15) {
+          const pName = slab.plate === 'PAC' ? '太平洋プレート' : 'フィリピン海プレート';
+          return `【プレート境界型】${pName}と上載プレートの接触境界（アスペリティ）付近で発生した地震です。`;
+        }
       }
-      if (lon > 141 && lat >= 35) {
-        return '太平洋プレートと北日本側の境界域（日本海溝・千島海溝沿い）の沈み込み帯です。';
+      if (depth <= 25) {
+        return '【内陸地殻内地震】陸側プレート（アムールプレート等）の浅い上部地殻・活断層帯で発生した地震です。';
       }
-      if (lat < 35 && lon > 131 && lon < 139) {
-        return '南海トラフ沿い。フィリピン海プレートが西日本の下に潜り込む沈み込み帯です。';
-      }
-      return '内陸地殻内（アムールプレート等）の活断層や浅いプレート上載部で発生した地震です。';
+      return `地下深さ${depth}kmで発生した深発・スラブ関連地震です。`;
     }
 
     // --- 8. UI Interactions & Sidebar List ---
@@ -680,7 +852,10 @@
 
         item.innerHTML = `
           <div class="space-y-0.5">
-            <div class="font-bold text-slate-100 group-hover:text-cyan-300 transition">${q.place}</div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-bold text-slate-100 group-hover:text-cyan-300 transition">${q.place}</span>
+              ${q.isIntraSlab ? '<span class="text-[9px] px-1 py-0.2 bg-cyan-950 text-cyan-300 rounded border border-cyan-500/40 font-normal">スラブ内</span>' : ''}
+            </div>
             <div class="text-[10px] text-slate-400">${q.time}</div>
             <div class="text-[11px] space-x-2">
               <span class="font-semibold text-yellow-400">M${q.magnitude.toFixed(1)}</span>
@@ -724,19 +899,48 @@
       detailModal.classList.add('hidden');
     });
 
+    // カメラ移動用のアニメーション変数
+    let cameraAnim = null;
+
     function focusQuake(q) {
       // Show detail modal with exact date/time
       detailModal.classList.remove('hidden');
       document.getElementById('modal-place').textContent = q.place;
       document.getElementById('modal-datetime').textContent = q.time;
       document.getElementById('modal-magnitude').textContent = `M ${Number(q.magnitude).toFixed(1)}`;
-      document.getElementById('modal-depth').textContent = `${q.depth} km (地下立体配置)`;
+      document.getElementById('modal-depth').textContent = `${q.depth} km ${q.isIntraSlab ? '(スラブ内部に配置)' : ''}`;
       document.getElementById('modal-badge').textContent = `最大震度 ${q.maxScale}`;
       document.getElementById('modal-tectonics').textContent = q.tectonics;
 
-      // Camera smoothly shifts towards the target point
-      const targetPos = geoTo3D(q.lat, q.lon, q.depth);
-      controls.target.copy(targetPos);
+      // 該当オブジェクトから座標を取得
+      const matchedMesh = quakeInteractiveMeshes.find(m => m.userData.quake.id === q.id || (m.userData.quake.place === q.place && m.userData.quake.time === q.time));
+      
+      const localPos = matchedMesh ? matchedMesh.userData.posUnder : geoTo3D(q.lat, q.lon, q.depth);
+      const surfacePos = matchedMesh ? matchedMesh.userData.posSurface : geoTo3D(q.lat, q.lon, 0);
+
+      // 赤く淡い点滅パルスエフェクトを開始
+      createHighlightEffects(localPos, surfacePos);
+
+      // 震源のローカル座標をワールド座標（回転考慮）に変換
+      const worldTarget = localPos.clone().applyMatrix4(worldGroup.matrixWorld);
+
+      // 震源の深さと位置が一番よく見える斜め上空のオフセット位置を計算
+      const elevationOffset = q.depth > 70 ? 8 : 12;
+      const cameraOffset = new THREE.Vector3(7, elevationOffset, 11);
+      const worldCamPos = worldTarget.clone().add(cameraOffset);
+
+      // スムーズなカメラ移動アニメーションを設定
+      cameraAnim = {
+        startCam: camera.position.clone(),
+        endCam: worldCamPos,
+        startTarget: controls.target.clone(),
+        endTarget: worldTarget,
+        progress: 0,
+        duration: 45
+      };
+
+      autoRotate = false;
+      btnToggleRotate.textContent = '再開';
     }
 
     // --- 10. Hover Tooltip (Raycasting) ---
@@ -758,7 +962,7 @@
         tooltip.style.top = `${e.clientY}px`;
         tooltipTitle.textContent = q.place;
         tooltipTime.textContent = `🕒 ${q.time}`;
-        tooltipMeta.innerHTML = `<div>規模: <span class="text-yellow-300 font-bold">M${q.magnitude}</span> / 震度: <span class="font-bold">${q.maxScale}</span></div><div>深さ: <span class="text-emerald-300 font-bold">${q.depth} km</span> (地下座標)</div>`;
+        tooltipMeta.innerHTML = `<div>規模: <span class="text-yellow-300 font-bold">M${q.magnitude}</span> / 震度: <span class="font-bold">${q.maxScale}</span></div><div>深さ: <span class="text-emerald-300 font-bold">${q.depth} km</span> ${q.isIntraSlab ? '<span class="text-cyan-300 ml-1 font-semibold">[スラブ内]</span>' : ''}</div>`;
         tooltip.classList.remove('hidden');
         document.body.style.cursor = 'pointer';
       } else {
@@ -805,12 +1009,81 @@
       fetchRealtimeQuakes();
     });
 
+    // --- Sidebar Toggle Handling ---
+    const sidebar = document.getElementById('sidebar');
+    const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+    const toggleIcon = document.getElementById('sidebar-toggle-icon');
+    let isSidebarOpen = true;
+
+    function setSidebarVisibility(show) {
+      isSidebarOpen = show;
+      if (isSidebarOpen) {
+        sidebar.classList.remove('-translate-x-full');
+        toggleIcon.textContent = '◀';
+        btnToggleSidebar.title = '地震一覧を非表示 (Hキー)';
+        // サイドバーが開いているときはボタンをサイドバー内ヘッダー左上にフィット
+        btnToggleSidebar.style.left = '1rem';
+      } else {
+        sidebar.classList.add('-translate-x-full');
+        toggleIcon.textContent = '▶';
+        btnToggleSidebar.title = '地震一覧を表示 (Hキー)';
+        btnToggleSidebar.style.left = '1rem';
+      }
+    }
+
+    btnToggleSidebar.addEventListener('click', () => {
+      setSidebarVisibility(!isSidebarOpen);
+    });
+
+    // キーボードショートカット (Hキーでトグル)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'h' || e.key === 'H') {
+        // 入力フォームやモーダルフォーカス時を除外
+        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+          setSidebarVisibility(!isSidebarOpen);
+        }
+      }
+    });
+
     document.getElementById('btn-tab-realtime').addEventListener('click', () => loadTab('realtime'));
     document.getElementById('btn-tab-history').addEventListener('click', () => loadTab('history'));
 
     // --- 12. Animation Loop ---
     function animate() {
       requestAnimationFrame(animate);
+
+      // 選択箇所の赤く淡い点滅・パルスアニメーション
+      if (activeHighlightMesh) {
+        const time = performance.now() * 0.0035; // 穏やかな脈動
+        // 0.25〜0.6 の間で淡く点滅
+        const pulse = 0.5 + 0.5 * Math.sin(time * 2);
+        activeHighlightMesh.material.opacity = 0.2 + pulse * 0.35;
+        
+        // 呼吸するようにわずかに拡縮
+        const s = 1.0 + 0.35 * pulse;
+        activeHighlightMesh.scale.set(s, s, s);
+
+        if (activeHighlightRing) {
+          activeHighlightRing.material.opacity = 0.25 + pulse * 0.45;
+          const sRing = 1.0 + 0.6 * pulse;
+          activeHighlightRing.scale.set(sRing, sRing, 1.0);
+        }
+      }
+
+      // カメラのスムーズ補間アニメーション
+      if (cameraAnim) {
+        cameraAnim.progress++;
+        const t = Math.min(cameraAnim.progress / cameraAnim.duration, 1.0);
+        // easeOutCubic
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        camera.position.lerpVectors(cameraAnim.startCam, cameraAnim.endCam, ease);
+        controls.target.lerpVectors(cameraAnim.startTarget, cameraAnim.endTarget, ease);
+
+        if (t >= 1.0) {
+          cameraAnim = null;
+        }
+      }
 
       // ゆっくりとした自転 (超微速: 0.0006)
       if (autoRotate) {
